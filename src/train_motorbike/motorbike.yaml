@@ -1,0 +1,9 @@
+path = ./dataset/vehicle/motorbike_masked
+
+train: images/train
+val: images/val
+
+names:
+  0: motorbike
+  2: license-plate
+  3: dif-plate

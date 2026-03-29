@@ -1,0 +1,18 @@
+# ===== ENV =====
+.venv/
+
+# ===== CVAT =====
+cvat/
+
+# ===== PYTHON =====
+__pycache__/
+*.pyc
+
+# ===== YOLO =====
+runs/
+*.pt
+
+# ===== DATA =====
+dataset/
+
+

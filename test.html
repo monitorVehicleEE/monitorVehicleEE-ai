@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="vi">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>YOLO11 Interactive Guide</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://polyfill.io/v3/polyfill.min.js?features=es6"></script>
+    <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+    <style>
+        .gradient-bg {
+            background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+        }
+
+        .card-hover:hover {
+            transform: translateY(-5px);
+            transition: all 0.3s ease;
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+    </style>
+</head>
+
+<body class="bg-gray-50 font-sans text-gray-900">
+
+    <header class="gradient-bg text-white py-12 px-6 text-center shadow-lg">
+        <h1 class="text-4xl md:text-5xl font-extrabold mb-4">Khám Phá YOLO11</h1>
+        <p class="text-blue-300 text-lg">Thế hệ kế tiếp của Object Detection: Tốc độ & Chính xác</p>
+    </header>
+
+    <main class="max-w-6xl mx-auto p-6 mt-8">
+
+        <section class="mb-12">
+            <div class="flex flex-wrap justify-center gap-4 mb-8">
+                <button onclick="openTab('arch')"
+                    class="tab-btn px-6 py-2 rounded-full bg-blue-600 text-white font-semibold shadow-md hover:bg-blue-700 transition">Kiến
+                    Trúc Mạng</button>
+                <button onclick="openTab('math')"
+                    class="tab-btn px-6 py-2 rounded-full bg-gray-200 text-gray-700 font-semibold shadow-md hover:bg-blue-600 hover:text-white transition">Toán
+                    Học & Loss</button>
+                <button onclick="openTab('train')"
+                    class="tab-btn px-6 py-2 rounded-full bg-gray-200 text-gray-700 font-semibold shadow-md hover:bg-blue-600 hover:text-white transition">Cách
+                    Huấn Luyện</button>
+            </div>
+
+            <div id="arch" class="tab-content active bg-white p-8 rounded-2xl shadow-sm border border-gray-100">
+                <h2 class="text-2xl font-bold mb-4 text-blue-800">Cấu trúc phân tầng của YOLO11</h2>
+                <div class="grid md:grid-cols-3 gap-6">
+                    <div class="p-4 border-l-4 border-blue-500 bg-blue-50">
+                        <h3 class="font-bold">1. Backbone (C3k2)</h3>
+                        <p class="text-sm">Trích xuất đặc trưng đa cấp độ. C3k2 giúp giảm tham số nhưng tăng khả năng
+                            học sâu.</p>
+                    </div>
+                    <div class="p-4 border-l-4 border-green-500 bg-green-50">
+                        <h3 class="font-bold">2. Neck (C2PSA)</h3>
+                        <p class="text-sm">Kết hợp các feature maps. Cơ chế Attention (PSA) giúp mô hình tập trung vào
+                            vùng quan trọng.</p>
+                    </div>
+                    <div class="p-4 border-l-4 border-red-500 bg-red-50">
+                        <h3 class="font-bold">3. Head (Anchor-Free)</h3>
+                        <p class="text-sm">Dự đoán trực tiếp tọa độ mà không cần Anchor boxes, giúp tăng tốc độ xử lý.
+                        </p>
+                    </div>
+                </div>
+
+            </div>
+
+            <div id="math" class="tab-content bg-white p-8 rounded-2xl shadow-sm border border-gray-100">
+                <h2 class="text-2xl font-bold mb-4 text-blue-800">Cơ chế tính toán Loss</h2>
+                <p class="mb-4">YOLO11 sử dụng một hàm mất mát hỗn hợp để tối ưu hóa đồng thời vị trí và phân loại:</p>
+                <div class="bg-gray-800 text-green-400 p-6 rounded-lg font-mono overflow-x-auto">
+                    $$L_{total} = \lambda_{box} L_{IoU} + \lambda_{cls} L_{BCE} + \lambda_{dfl} L_{DFL}$$
+                </div>
+                <ul class="mt-6 space-y-3">
+                    <li><strong>$L_{IoU}$:</strong> Tính toán độ khớp của Bounding Box.</li>
+                    <li><strong>$L_{BCE}$:</strong> Phân loại vật thể (Binary Cross Entropy).</li>
+                    <li><strong>$L_{DFL}$:</strong> Phân phối xác định vị trí (Distribution Focal Loss) giúp tinh chỉnh
+                        các cạnh vật thể.</li>
+                </ul>
+            </div>
+
+            <div id="train" class="tab-content bg-white p-8 rounded-2xl shadow-sm border border-gray-100">
+                <h2 class="text-2xl font-bold mb-4 text-blue-800">Thực thi Code Huấn Luyện</h2>
+                <div class="bg-slate-900 text-white p-4 rounded-lg relative">
+                    <button class="absolute top-2 right-2 text-xs bg-gray-700 px-2 py-1 rounded">Copy</button>
+                    <pre><code>from ultralytics import YOLO
+
+# Load pre-trained model
+model = YOLO("yolo11n.pt") 
+
+# Train model
+model.train(
+    data="custom_dataset.yaml",
+    epochs=100,
+    imgsz=640,
+    device='cuda' # or 'cpu'
+)</code></pre>
+                </div>
+                <div class="mt-6 grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <div class="text-center p-4 bg-gray-100 rounded-lg italic">Step 1: Data Labeling</div>
+                    <div class="text-center p-4 bg-gray-100 rounded-lg italic">Step 2: Config YAML</div>
+                    <div class="text-center p-4 bg-gray-100 rounded-lg italic">Step 3: Training</div>
+                    <div class="text-center p-4 bg-gray-100 rounded-lg italic">Step 4: Inference</div>
+                </div>
+            </div>
+        </section>
+
+        <section class="grid md:grid-cols-3 gap-8 text-center">
+            <div class="p-6 bg-white rounded-xl shadow-sm card-hover border border-gray-100">
+                <div class="text-4xl font-bold text-blue-600 mb-2">2x</div>
+                <p class="text-gray-600">Tốc độ xử lý nhanh hơn v8</p>
+            </div>
+            <div class="p-6 bg-white rounded-xl shadow-sm card-hover border border-gray-100">
+                <div class="text-4xl font-bold text-blue-600 mb-2">~15%</div>
+                <p class="text-gray-600">Giảm số lượng tham số</p>
+            </div>
+            <div class="p-6 bg-white rounded-xl shadow-sm card-hover border border-gray-100">
+                <div class="text-4xl font-bold text-blue-600 mb-2">SOTA</div>
+                <p class="text-gray-600">Độ chính xác mAP vượt trội</p>
+            </div>
+        </section>
+    </main>
+
+    <footer class="mt-20 py-8 bg-gray-200 text-center text-gray-600 text-sm">
+        &copy; 2026 YOLO11 Education Project. Sức mạnh bởi Ultralytics & AI.
+    </footer>
+
+    <script>
+        function openTab(tabName) {
+            // Hide all contents
+            const contents = document.getElementsByClassName("tab-content");
+            for (let content of contents) {
+                content.classList.remove("active");
+            }
+            // Reset button styles
+            const buttons = document.getElementsByClassName("tab-btn");
+            for (let btn of buttons) {
+                btn.classList.replace("bg-blue-600", "bg-gray-200");
+                btn.classList.replace("text-white", "text-gray-700");
+            }
+            // Show current tab
+            document.getElementById(tabName).classList.add("active");
+            // Highlight current button
+            event.currentTarget.classList.replace("bg-gray-200", "bg-blue-600");
+            event.currentTarget.classList.replace("text-gray-700", "text-white");
+        }
+    </script>
+</body>
+
+</html>
