@@ -4,14 +4,11 @@ from pathlib import Path
 from PIL import Image, ImageDraw
 
 
-# image_dir = "./dataset/vehicle/motocycle_raw/images/train/"
-# label_dir = "./dataset/vehicle/motocycle_raw/labels/train/"
-# output_img_dir = "./dataset/vehicle/motorbike_masked/"
 
-src_root    = Path("dataset/vehicle/motocycle_raw")
-target_root = Path("dataset/vehicle/motorbike_masked")
+src_root    = Path("dataset/plate-detect/data_raw")
+target_root = Path("dataset/plate-detect/data_masked")
 
-for split in ["train","val"]:
+for split in ["train","val","test"]:
     src_images_root = src_root / "images" / split
     src_labels_root = src_root / "labels" / split
 
@@ -61,12 +58,14 @@ for split in ["train","val"]:
                     x2 = int(x_center + box_w / 2)
                     y2 = int(y_center + box_h / 2)
 
-                    if class_id == 1:
-                        # class 1 (xoa) → fill trắng
-                        drawer.rectangle([x1, y1, x2, y2], fill=(255, 255, 255))
-                    else:
-                        # giữ lại các class khác
+                    if class_id == 0:
+                        # giữ lại class
                         lines_to_keep.append(line)
+                    elif class_id == 2:
+                        continue
+                    else :
+                         # class 1 (xoa) → fill trắng
+                        drawer.rectangle([x1, y1, x2, y2], fill=(255, 255, 255))
             
         image.save(target_image_path)
         

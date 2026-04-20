@@ -3,11 +3,11 @@ import json
 import requests
 from tqdm import tqdm
 
-JSON_FILE  = "./dataset/vehicle/Motocycle/images_urls_1.json"
-SAVE_DIR  = "./dataset/vehicle/Motocycle/images/train/"
+JSON_FILE  = "./dataset/vehicle/motocycle_raw/images_urls_1.json"
+SAVE_DIR  = "./dataset/vehicle/motocycle_raw/images/train/"
 BATCH_SIZE = 100
-START_INDEX = 0 # vị trí tải
-END_INDEX = 500 # tải đến đâu
+START_INDEX = 1001 # vị trí tải
+END_INDEX = 1500 # tải đến đâu
 
 headers = {"User-Agent": "Mozilla/5.0"} # giả lập req trình duyệt
 

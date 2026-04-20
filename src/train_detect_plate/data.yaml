@@ -1,0 +1,11 @@
+path: ./dataset/plate-detect/data_masked/
+train: images/train
+val: images/val
+test: images/test
+
+kpt_shape:
+- 4
+- 3
+names:
+  0: plate-kps
+
