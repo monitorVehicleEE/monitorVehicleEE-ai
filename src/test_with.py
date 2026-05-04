@@ -1,13 +1,13 @@
 from ultralytics import YOLO
 
-model = YOLO("./runs/pose/runs_detect_plate/yl11s_dp_ver1/weights/best.pt")
+model = YOLO("./runs/detect/runs_vehicle/yolo11s_vehicle_v1/weights/best.pt")
 
 results = model.predict( 
-    source="./dataset/vehicle/test_videos/VID_20260415_084407.mp4",
+    source="./dataset/vehicle/test_videos/VID_20260426_101157.mp4",
     save=True,
-    conf=0.25,
-    # trường hợp không muốn sinh folder mới
-    project="./runs/pose",     # thư mục gốc
+    conf=0.45,
+    
+    project="./runs/vehicle",     # thư mục gốc
     name="video_results",      # tên cố định
     exist_ok=True              # cho phép ghi đè
 )

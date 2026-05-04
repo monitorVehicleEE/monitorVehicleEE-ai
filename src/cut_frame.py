@@ -1,19 +1,37 @@
 import cv2
 import os
 
-video_path = "./dataset/vehicle/videos/15.mp4"
+# cắt cụ thể 
+video_path = "./dataset/vehicle/videos/68.mp4" 
 video_name = os.path.splitext(os.path.basename(video_path))[0]
-
 output_folder = f"./dataset/vehicle/frames/{video_name}/"
+###
+# cắt nhiều
+# video_dir = "./dataset/vehicle/videos/" # folder
+# output_root = "./dataset/vehicle/data_raw/images/train/"
 
+#đơn
 os.makedirs(output_folder, exist_ok=True)
 cap = cv2.VideoCapture(video_path)
-
+###
 skip_frame = 5       # lấy mỗi N frame
 resize = None    # resize ảnh (None nếu không cần)
 diff_threshold = 5     # ngưỡng khác biệt để bỏ frame trùng (0-255)
 
+# cắt nhiều:
+# for i in range(118, 150):  # raneg
+#     video_path = os.path.join(video_dir, f"{i}.mp4")
+    
+#     if not os.path.exists(video_path):
+#         print(f" Không tìm thấy: {video_path}")
+#         continue
 
+#     video_name = str(i)
+#     output_folder = os.path.join(output_root, video_name)
+#     os.makedirs(output_folder, exist_ok=True)
+
+#     cap = cv2.VideoCapture(video_path)
+#########
 
 prev_gray = None
 frame_count = 0
@@ -24,14 +42,14 @@ while True:
     if not ret:
         break
 
-    # Skip frame
+        # Skip frame
     if frame_count % skip_frame != 0:
         frame_count += 1
         continue
 
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
-    # So sánh với frame trước để loại trùng
+        # So sánh với frame trước để loại trùng
     if prev_gray is not None:
         diff = cv2.absdiff(prev_gray, gray)
         mean_diff = diff.mean()
@@ -42,11 +60,11 @@ while True:
 
     prev_gray = gray
 
-    # Resize nếu cần
+        # Resize nếu cần
     if resize is not None:
         frame = cv2.resize(frame, resize)
 
-    # Lưu ảnh
+        # Lưu ảnh
     filename = os.path.join(output_folder, f"{video_name}_{save_count:05d}.jpg")
     cv2.imwrite(filename, frame)
 

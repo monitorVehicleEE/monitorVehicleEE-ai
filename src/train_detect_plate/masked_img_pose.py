@@ -72,9 +72,9 @@ for split in ["train", "val", "test"]:
                         # giữ lại label
                         lines_to_keep.append(line)
 
-                    elif class_id == 2:
+                    else:
                         # mask theo bbox
-                        drawer.rectangle([x1, y1, x2, y2], fill=(255, 255, 255))
+                        drawer.rectangle([x1, y1, x2, y2], fill=(0, 0, 0))
 
                         # ---- OPTIONAL: mask theo polygon (4 keypoints) ----
                         # pts = [(int(kx), int(ky)) for kx, ky, v in keypoints if v > 0]

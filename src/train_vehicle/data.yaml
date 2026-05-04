@@ -1,0 +1,19 @@
+path: ./dataset/vehicle/data_masked
+
+train: images/train
+val: images/val
+# test: images/test
+
+
+names:
+  0: motorbike
+  1: xoa
+  2: license-plate
+  3: dif-plate
+  4: oto
+  5: xe-tai
+  6: xe-ban-tai
+  7: plate-kps
+  8: dif-plate-kps
+  9: delete
+  10: xe-container

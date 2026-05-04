@@ -5,8 +5,8 @@ from PIL import Image, ImageDraw
 
 
 
-src_root    = Path("dataset/plate-detect/data_raw")
-target_root = Path("dataset/plate-detect/data_masked")
+src_root    = Path("dataset/vehicle/data_raw")
+target_root = Path("dataset/vehicle/data_masked")
 
 for split in ["train","val","test"]:
     src_images_root = src_root / "images" / split
@@ -58,7 +58,7 @@ for split in ["train","val","test"]:
                     x2 = int(x_center + box_w / 2)
                     y2 = int(y_center + box_h / 2)
 
-                    if class_id == 0:
+                    if class_id == 0 or class_id == 4 or class_id == 5 or class_id == 10:
                         # giữ lại class
                         lines_to_keep.append(line)
                     elif class_id == 2:
