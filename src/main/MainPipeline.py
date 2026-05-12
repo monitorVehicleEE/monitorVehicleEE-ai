@@ -2,7 +2,10 @@ import cv2
 import numpy as np
 from PlateWarper import PlateWarper
 import math
-
+import json
+from datetime import datetime
+import os
+from pathlib import Path 
 
 class MainPipeline:
     def __init__(self, vehicle_detector, plate_detector, char_detector):
@@ -24,7 +27,6 @@ class MainPipeline:
             'B': '8',
             'G': '6'
         }
-
         self.digit_to_char = {
             '0': 'O',
             '1': 'I',
@@ -33,6 +35,20 @@ class MainPipeline:
             '8': 'B',
             '6': 'G'
         }
+        self.vehicle_colors = {
+            "oto":   (255, 0, 0),    # xanh dương
+            "xe-tai": (0, 255, 255),  # vàng
+            "container":   (0, 165, 255),  # cam
+            "motorbike": (0, 255, 0),# xanh lá
+        }
+        self.default_vehicle_color = (255, 255, 255)
+        # self.vehicle_names = {
+        #     "oto":        "Ô tô",
+        #     "xe-tai":     "Xe tải",
+        #     "container":  "Xe container",
+        #     "motorbike":  "Xe máy",
+        # }
+        # self.default_vehicle_name = "Phương tiện"
 
     def detect_vehicles(self, frame):
         return self.vehicle_detector.detect(frame)
@@ -65,7 +81,6 @@ class MainPipeline:
         # cập nhật state cho frame sau
         self.prev_plate_points = [p.copy() for p in smoothed]
         return smoothed
-
 
     def prepare_plate_image(self, frame, bbox, pts):
         x1, y1, x2, y2 = bbox
@@ -141,41 +156,6 @@ class MainPipeline:
 
         return plate_text
 
-    # def format_plate(self, text: str) -> str:
-    #     """
-    #     - 43AB12345 -> 43AB-123.45
-    #     - 43E12345  -> 43E-123.45
-    #     - 43AB1234  -> 43AB-1234
-    #     - 43E1234   -> 43E-1234
-    #     """
-    #     t = text.replace(" ", "")
-    #     if len(t) < 4:
-    #         return t
-
-    #     # lấy phần số liên tục ở cuối
-    #     tail_digits = ""
-    #     i = len(t) - 1
-    #     while i >= 0 and t[i].isdigit():
-    #         tail_digits = t[i] + tail_digits
-    #         i -= 1
-
-    #     head = t[:i+1]          # phần chữ + mã tỉnh
-    #     nums = tail_digits      # phần số
-
-    #     if len(nums) == 5:
-    #         # biển 5 số: xxx-123.45
-    #         group3 = nums[:3]
-    #         group2 = nums[3:]
-    #         return f"{head}-{group3}.{group2}"
-    #     elif len(nums) == 4:
-    #         # biển 4 số: xxx-1234 (không chấm)
-    #         return f"{head}-{nums}"
-    #     else:
-    #         # các trường hợp khác: giữ nguyên, chỉ thêm '-' nếu có head và nums
-    #         if head and nums:
-    #             return f"{head}-{nums}"
-    #         return t
-
     def format_plate(self, text: str) -> str:
         t = text.replace(" ", "")
         n = len(t)
@@ -246,10 +226,19 @@ class MainPipeline:
         return text, chars
 
     def draw_vehicles(self, frame, vehicles):
+        # for (x1, y1, x2, y2, conf, label) in vehicles:
+        #     cv2.rectangle(frame, (x1, y1), (x2, y2), (255, 0, 0), 2)
+        #     cv2.putText(frame, f"{label} {conf:.2f}", (x1, max(0, y1 - 10)),
+        #                 cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 0, 0), 2, cv2.LINE_AA)
         for (x1, y1, x2, y2, conf, label) in vehicles:
-            cv2.rectangle(frame, (x1, y1), (x2, y2), (255, 0, 0), 2)
-            cv2.putText(frame, f"{label} {conf:.2f}", (x1, max(0, y1 - 10)),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 0, 0), 2, cv2.LINE_AA)
+            color = self.vehicle_colors.get(label, self.default_vehicle_color)
+            # name  = self.vehicle_names.get(label, self.default_vehicle_name)
+            cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
+            #f"{label}
+            cv2.putText(frame, f"{label} {conf:.2f}",
+                        (x1, max(0, y1 - 10)),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6,
+                        color, 2, cv2.LINE_AA)
 
     def draw_plate_pose_and_text(self, frame, bbox, pts, text, plate_img = None, char_boxes = None, scale = 2.0, offset = (10,-80)):
         x1, y1, x2, y2 = bbox
@@ -366,10 +355,97 @@ class MainPipeline:
 
         return frame, results
 
+    # với mỗi plate bbox tìm vehicle bbox nào bao phủ plate rồi lấy track_id đó
+    def bbox_iou(self, boxA, boxB):
+        xA = max(boxA[0], boxB[0])
+        yA = max(boxA[1], boxB[1])
+        xB = min(boxA[2], boxB[2])
+        yB = min(boxA[3], boxB[3])
+
+        interW = max(0, xB - xA)
+        interH = max(0, yB - yA)
+        interArea = interW * interH
+
+        if interArea == 0:
+            return 0.0
+        
+        boxAArea = (boxA[2] - boxA[0]) * (boxA[3] - boxA[1])
+        boxBArea = (boxB[2] - boxB[0]) * (boxB[3] - boxB[1])
+        iou = interArea / float(boxAArea + boxBArea - interArea)
+        return iou
+
+    def process_frame_with_tracked_vehicles(self, frame, vehicles):
+        h,w = frame.shape[:2]
+        # detect plates bình thường trên toàn frame
+        plates = self.detect_plates(frame)
+        results = []
+
+        # dùng vehicles từ tracker:
+        # for (track_id, x1, y1, x2, y2, conf, label) in vehicles:
+        #     cv2.rectangle(frame, (x1, y1), (x2, y2), (255, 0, 0), 2)
+        #     cv2.putText(frame, f"ID {track_id} {label}",
+        #             (x1, max(0, y1 - 10)),
+        #             cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 0, 0), 2,
+        #             cv2.LINE_AA)
+        for (track_id, x1, y1, x2, y2, conf, label) in vehicles:
+            color = self.vehicle_colors.get(label, self.default_vehicle_color)
+            # name  = self.vehicle_names.get(label, self.default_vehicle_name)
+            cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
+            cv2.putText(frame, f"ID {track_id} {label}",
+                        (x1, max(0, y1 - 10)),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6,
+                        color, 2, cv2.LINE_AA)
+
+        for plate in plates:
+            bbox = plate["bbox"]
+            pts = plate["points"]
+
+            # tìm vehicle có IOU lớn nhất với plate
+            best_tid = None
+            best_iou = 0.0
+            
+            for (track_id, vx1, vy1, vx2, vy2, vconf, vlabel) in vehicles:
+                iou = self.bbox_iou(bbox, (vx1, vy1, vx2, vy2))
+                if iou > best_iou:
+                    best_iou = iou
+                    best_tid = track_id
+
+            if best_iou < 0.1:
+                best_tid = None
+
+            plate_img_for_char, plate_crop = self.prepare_plate_image(frame, bbox, pts)
+            text, char_boxes = self.recognize_plate_text(plate_img_for_char)
+
+            results.append({
+                "track_id": best_tid,
+                "bbox": bbox,
+                "points": pts,
+                "text": text,
+                "chars": char_boxes
+            })
+
+            self.draw_plate_pose_and_text(
+                frame, bbox, pts, text,
+                plate_img_for_char, char_boxes=char_boxes,
+                scale=2.0, offset=(10, -80)
+            )
+        return frame, results
+
+    def convert_to_json(self,obj):
+        # chuyển ndarray -> list
+        if isinstance(obj, np.ndarray):
+            return obj.tolist()
+        # list/tuple -> xử lý từng phần tử
+        if isinstance(obj, (list, tuple)):
+            return [self.convert_to_json(x) for x in obj]
+        # dict -> xử lý từng value
+        if isinstance(obj, dict):
+            return {k: self.convert_to_json(v) for k, v in obj.items()}
+        return obj
+
+
 
 # ===== CHẠY ẢNH / VIDEO =====
-
-import os
 
 def run_on_image(image_path, pipeline, save_path=None, show=True):
     img = cv2.imread(image_path)
@@ -400,7 +476,6 @@ def run_on_image(image_path, pipeline, save_path=None, show=True):
         cv2.destroyAllWindows()
 
     return out_img, results
-
 
 def run_on_video(video_source, pipeline, save_path=None, show=True):
     cap = cv2.VideoCapture(video_source)
@@ -454,3 +529,140 @@ def run_on_video(video_source, pipeline, save_path=None, show=True):
         cv2.destroyAllWindows()
 
     return out_frame, results
+
+def run_on_video_with_tracker(video_source, pipeline, vehicle_tracker, save_video_path = None,
+                            save_json_path = None, show = True):
+    writer = None
+    all_results = []   # lưu kết quả mọi frame
+    # best_by_id = {}
+
+    # lấy frame đầu tiên để cấu hình VideoWriter
+    first_frame, vehicles = vehicle_tracker.next_frame()
+
+    if first_frame is None:
+        raise ValueError(f"Không đọc được video (tracker): {video_source}")
+
+    h, w = first_frame.shape[:2]
+
+    if save_video_path is not None:
+        folder = os.path.dirname(save_video_path)
+        if folder and not os.path.exists(folder):
+            os.makedirs(folder, exist_ok=True)
+
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        fps = 25
+
+        unique_video_path = make_unique_path(save_video_path)
+
+        writer = cv2.VideoWriter(unique_video_path, fourcc, fps, (w, h))
+        if not writer.isOpened():
+            raise ValueError(f"Không tạo được VideoWriter: {unique_video_path}")
+
+    frame_idx = 0
+    # xử lý frame đầu tiên
+    frame = first_frame
+    
+    while frame is not None:
+        out_frame, results = pipeline.process_frame_with_tracked_vehicles(frame, vehicles)
+
+        # cập nhật best_by_id
+        # for plate in results:
+        #     tid = plate.get("track_id")
+        #     if tid is None:
+        #         continue
+        #     plate_json = pipeline.convert_to_json(plate)
+        #     best_by_id[tid] = choose_better_plate(best_by_id.get(tid), plate_json)
+
+        # convert results sang dạng json-safe
+        json_results = [pipeline.convert_to_json(r) for r in results]
+
+        # thêm metadata để gửi server
+        frame_info = {
+            "frame_index": frame_idx,
+            "timestamp": datetime.now().isoformat(),
+            "video_source": video_source,
+            "plates": json_results    # list các dict có track_id, text, bbox, ...
+        }
+        all_results.append(frame_info)
+    
+        if writer is not None:
+                writer.write(out_frame)
+        
+        if show:
+                cv2.imshow("ANPR + Tracker", out_frame)
+                if cv2.waitKey(1) & 0xFF == 27:
+                    break
+        # lấy frame tiếp theo từ tracker
+        frame, vehicles = vehicle_tracker.next_frame()
+        frame_idx += 1
+    if writer is not None:
+        writer.release()
+    if show:
+        cv2.destroyAllWindows()
+    
+    # lưu JSON chỉ 1 bản tốt nhất cho mỗi track_id
+    if save_json_path is not None:
+        folder = os.path.dirname(save_json_path)
+        if folder and not os.path.exists(folder):
+            os.makedirs(folder, exist_ok=True)
+
+        unique_json_path = make_unique_path(save_json_path)
+        # final_list = list(best_by_id.values())
+        with open(unique_json_path , "w", encoding="utf-8") as f:
+            #final_list
+            json.dump(all_results , f, ensure_ascii=False, indent=2)
+
+    return all_results
+
+def make_unique_path(path):
+    # nếu chưa tồn tại thì dùng luôn
+    if not os.path.exists(path):
+        return path
+
+    base, ext = os.path.splitext(path)
+    i = 1
+    # thêm _1, _2, ... cho đến khi không trùng
+    while True:
+        new_path = f"{base}_{i}{ext}"
+        if not os.path.exists(new_path):
+            return new_path
+        i += 1
+
+
+def choose_better_plate(old, new):
+    if old is None:
+        return new
+    if len(new.get("text", "")) > len(old.get("text", "")):
+        return new
+    return old
+
+
+def extract_best_by_id(input_json_path, output_json_path):
+    # 1) Đọc file JSON full
+    with open(input_json_path, "r", encoding="utf-8") as f:
+        data = json.load(f)  # list frame_info
+
+    best_by_id = {}  # track_id -> plate dict
+
+    # 2) Gom lại theo track_id
+    for frame_info in data:
+        plates = frame_info.get("plates", [])
+        for plate in plates:
+            tid = plate.get("track_id")
+            if tid is None:
+                continue
+            best_by_id[tid] = choose_better_plate(best_by_id.get(tid), plate)
+
+    # 3) Đổi dict -> list
+    final_list = list(best_by_id.values())
+
+    # 4) Tạo folder nếu cần
+    out_path = Path(output_json_path)
+    if out_path.parent:
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    with open(out_path, "w", encoding="utf-8") as f:
+        json.dump(final_list, f, ensure_ascii=False, indent=2)
+
+    print("Số track_id:", len(best_by_id))
+    return final_list
