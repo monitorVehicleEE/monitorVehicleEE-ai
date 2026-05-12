@@ -2,6 +2,8 @@ path: ./dataset/data_warped/data_masked
 
 train: images/train
 val: images/val
+test: images/test
+
 names:
   0: '0'
   1: '1'
@@ -37,3 +39,4 @@ names:
   31: .
   32: delete
   33: R
+  34: Q

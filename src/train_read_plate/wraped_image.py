@@ -155,8 +155,8 @@ for label_path in label_files:
         if warped is None:
             continue
 
-        warped = cv2.resize(warped, IMG_SIZE)
-        warped = cv2.cvtColor(warped, cv2.COLOR_BGR2GRAY)
+        # warped = cv2.resize(warped, IMG_SIZE)
+        # warped = cv2.cvtColor(warped, cv2.COLOR_BGR2GRAY)
 
         save_name = f"{label_path.stem}_{count}.jpg"
         save_path = out_dir / save_name

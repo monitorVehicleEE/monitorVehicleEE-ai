@@ -124,7 +124,22 @@ def convert_cvat_to_yolo(xml_path: Path, images_root: Path, labels_root: Path,
             yolo_lines.append(f"{class_id} {cx:.6f} {cy:.6f} {bw:.6f} {bh:.6f}")
 
         label_path = labels_root / (Path(img_name).stem + ".txt")
-        # ghi cả khi không có box (file rỗng) để YOLO hiểu là ảnh không có object
+
+        
+        # nếu không có bbox thì xóa ảnh + bỏ qua label
+        if len(yolo_lines) == 0:
+            print(f"[REMOVE] {img_path} (không có bbox)")
+
+            # xóa ảnh
+            if img_path.exists():
+                img_path.unlink()
+
+            # xóa label cũ nếu tồn tại
+            if label_path.exists():
+                label_path.unlink()
+
+            continue
+        
         with label_path.open("w", encoding="utf-8") as f:
             f.write("\n".join(yolo_lines))
 

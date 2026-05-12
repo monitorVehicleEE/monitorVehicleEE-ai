@@ -7,8 +7,8 @@ from pathlib import Path
 # labels_path = Path("./dataset/plate-detect/data_raw/labels/val/")
 # images_path = Path("./dataset/plate-detect/data_raw/images/val/")
 
-labels_path = Path("./dataset/data_warped/data_masked/labels/test/")
-images_path = Path("./dataset/data_warped/data_masked/images/test/")
+labels_path = Path("./dataset/data_warped/data_masked/labels/train/")
+images_path = Path("./dataset/data_warped/data_masked/images/train/")
 
 deleted_images = 0
 deleted_labels = 0

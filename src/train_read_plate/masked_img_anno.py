@@ -10,13 +10,12 @@ target_root = Path("./dataset/data_warped/data_masked")
 
 
 def fill_and_remove_boxes(img_el, images_root: Path, output_root: Path,
-                          dif_prefix="dif_", target_class_id=32, image_id_filter=None):
+                          dif_prefix="dif_", image_id_filter=None):
     """
     img_el: element <image> trong XML
     images_root: Path tới thư mục chứa ảnh gốc
     output_root: Path tới thư mục lưu ảnh sau khi fill trắng
     dif_prefix: tiền tố attribute dif_
-    target_class_id: class id cần fill trắng (32)
     image_id_filter: nếu khác None thì chỉ xử lý image có id này
     
     Returns: list các box_el cần xóa
@@ -42,9 +41,10 @@ def fill_and_remove_boxes(img_el, images_root: Path, output_root: Path,
     for box_el in img_el.findall("box"):
         should_fill = False
         
-        # Kiểm tra class id = 32
-        label = box_el.attrib.get("label", "")
-        if label == str(target_class_id):
+        # Kiểm tra label = delete
+        label = box_el.attrib.get("label", "").strip().lower()
+
+        if label == "delete":
             should_fill = True
         
         # Kiểm tra dif_* = true
@@ -85,7 +85,7 @@ def fill_and_remove_boxes(img_el, images_root: Path, output_root: Path,
 
 def process_cvat_file(xml_path: Path, images_root: Path, output_root: Path,
                       output_xml_path: Path, image_id_filter=None, 
-                      dif_prefix="dif_", target_class_id=32):
+                      dif_prefix="dif_"):
     """
     xml_path: path file XML export kiểu 'CVAT for images'
     images_root: thư mục chứa ảnh gốc
@@ -93,7 +93,6 @@ def process_cvat_file(xml_path: Path, images_root: Path, output_root: Path,
     output_xml_path: path file XML mới sau khi xóa boxes
     image_id_filter: chỉ xử lý image id cụ thể (None = tất cả)
     dif_prefix: tiền tố attribute dif_
-    target_class_id: class id cần xóa (32)
     """
     print(f"=== Đang xử lý XML: {xml_path} ===")
     tree = ET.parse(xml_path)
@@ -110,7 +109,6 @@ def process_cvat_file(xml_path: Path, images_root: Path, output_root: Path,
             images_root=images_root,
             output_root=output_root,
             dif_prefix=dif_prefix,
-            target_class_id=target_class_id,
             image_id_filter=image_id_filter
         )
         
@@ -159,5 +157,4 @@ if __name__ == "__main__":
             output_xml_path=out_xml,
             image_id_filter=None,   # =33 nếu bạn muốn chỉ id 33, None nếu tất cả
             dif_prefix="dif_",
-            target_class_id=32
         )

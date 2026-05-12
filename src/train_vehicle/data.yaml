@@ -2,7 +2,7 @@ path: ./dataset/vehicle/data_masked
 
 train: images/train
 val: images/val
-# test: images/test
+test: images/test
 
 
 names:
