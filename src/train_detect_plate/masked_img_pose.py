@@ -89,4 +89,6 @@ for split in ["train", "val", "test"]:
             with open(target_label_path, "w") as f:
                 f.write("\n".join(lines_to_keep))
         else:
-            open(target_label_path, "w").close()
+            # open(target_label_path, "w").close()
+            if target_label_path.exists():
+                target_label_path.unlink()

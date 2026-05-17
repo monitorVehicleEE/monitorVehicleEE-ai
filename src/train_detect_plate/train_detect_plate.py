@@ -13,13 +13,13 @@ def main():
         workers = 0,
         task="pose",
         # augmentation 
-        degrees=5,
-        translate=0.05,
-        scale=0.5,
-        fliplr=0.5,
+        # degrees=5,
+        # translate=0.05,
+        # scale=0.5,
+        # fliplr=0.5,
 
         project="runs_detect_plate",  # thư mục lưu kết quả
-        name="yl11s_dp_ver3"
+        name="yl11s_dp_ver6"
     )
 
 if __name__ == "__main__":

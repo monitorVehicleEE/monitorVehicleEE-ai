@@ -1,14 +1,14 @@
 from pathlib import Path
 
 # cần cụ thể folder không là sẽ xóa mất
-# labels_path = Path("./dataset/vehicle/data_raw/labels/train/68/")
-# images_path = Path("./dataset/vehicle/data_raw/images/train/68/")
+# labels_path = Path("./dataset/vehicle/data_raw/labels/train/45/")
+# images_path = Path("./dataset/vehicle/data_raw/images/train/45/")
 
-# labels_path = Path("./dataset/plate-detect/data_raw/labels/val/")
-# images_path = Path("./dataset/plate-detect/data_raw/images/val/")
+labels_path = Path("./dataset/plate-detect/data_raw/labels/train/")
+images_path = Path("./dataset/plate-detect/data_raw/images/train/")
 
-labels_path = Path("./dataset/data_warped/data_masked/labels/train/")
-images_path = Path("./dataset/data_warped/data_masked/images/train/")
+# labels_path = Path("./dataset/data_warped/data_masked/labels/train/")
+# images_path = Path("./dataset/data_warped/data_masked/images/train/")
 
 deleted_images = 0
 deleted_labels = 0

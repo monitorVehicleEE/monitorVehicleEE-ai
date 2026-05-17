@@ -13,7 +13,7 @@ class VehicleDetector:
             conf = float(box.conf[0])
             label = self.model.names[cls_vehicle]  
 
-            vehicles.append((x1, y1, x2, y2,conf,label))
+            vehicles.append((x1, y1, x2, y2,conf,cls_vehicle,label))
             # print(vehicles)
 
         return vehicles
