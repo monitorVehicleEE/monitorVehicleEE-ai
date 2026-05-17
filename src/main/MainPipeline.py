@@ -366,7 +366,9 @@ class MainPipeline:
                         color, 2, cv2.LINE_AA)
             # Init track nếu chưa có   
             if track_id not in self.plate_manager.memory:
-                self.plate_manager.init_track(track_id, vehicle_type=label)
+                self.plate_manager.init_track(track_id, vehicle_type=label, frame_index=self.frame_index)
+            else:  #Cập nhật vehicle_type nếu đã tồn tại
+                self.plate_manager.memory[track_id]["vehicle_type"] = label
 
             #self.track_memory[track_id]["last_seen"] = datetime.now().isoformat()
         
@@ -425,7 +427,7 @@ class MainPipeline:
             text = self.format_plate(raw_text)
 
             char_confs = [c.get("conf", 0)for c in chars_for_text]
-            avg_char_conf = ( sum(char_confs) / len(char_confs) if char_confs else 0 )
+            avg_conf = ( sum(char_confs) / len(char_confs) if char_confs else 0 )
 
             self.plate_manager.update_plate(
                 track_id=best_tid,
@@ -433,7 +435,7 @@ class MainPipeline:
                 frame_index=self.frame_index,
                 sharpness=sharpness,
                 char_count=len(chars_for_text),
-                avg_char_conf=avg_char_conf,
+                avg_conf=avg_conf,
                 bbox=bbox
             )
             # === Draw result ===
@@ -568,7 +570,14 @@ def run_tracker(video_source,pipeline,save_dir="./output",show=True,read_step=3)
             #Frame không OCR: chỉ draw vehicles
             detections = pipeline.vehicle_detector.detect(frame)
             vehicles = pipeline.vehicle_tracker.update(detections)
+
             for (track_id, x1, y1, x2, y2, conf, label) in vehicles:
+                if track_id not in pipeline.plate_manager.memory:
+                    pipeline.plate_manager.init_track(
+                        track_id, 
+                        vehicle_type=label,
+                        frame_index=frame_idx 
+                    )
                 color = pipeline.vehicle_colors.get(label, pipeline.default_vehicle_color)
                 cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
                 cv2.putText(frame, f"ID {track_id} {label}",

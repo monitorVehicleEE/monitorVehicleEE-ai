@@ -6,28 +6,12 @@ from PlateStatus import PlateStatus
 
 class PlateTrackingManager:
     def __init__(self, min_length=7, min_votes=3, max_history=20, 
-                 expire_frames=60, min_confidence=0.6):
+                 expire_frames=60, min_confidence=0.6,
+                 no_plate_ratio=0.9,min_sample_frames=10, blur_ratio=0.7):
         """
-        Parameters:
-        -----------
-        min_length : int (default=7)
-            Độ dài tối thiểu của biển số hợp lệ (VN: 7-9 ký tự)
-            
-        min_votes : int (default=3)
-            Số lần xuất hiện tối thiểu để xác nhận plate text ổn định
-            Voting giúp lọc lỗi OCR tạm thời
-            
-        max_history : int (default=20)
-            Số lượng candidates tối đa lưu trong memory
-            Giá trị cao -> memory usage tăng nhưng voting chính xác hơn
-            
         expire_frames : int (default=60)
             Số frame tối đa một track có thể mất dấu trước khi bị xóa
             60 frames ≈ 2-3 giây @ 25fps
-            
-        min_confidence : float (default=0.6)
-            Ngưỡng confidence tối thiểu để coi là READABLE
-            < 0.6 → LOW_CONFIDENCE
         """
         self.min_length = min_length
         self.min_votes = min_votes
@@ -36,9 +20,11 @@ class PlateTrackingManager:
         self.min_confidence = min_confidence
         self.memory = {}           # Active tracks
         self.finalized = {}        # Finalized tracks
+        self.no_plate_ratio = no_plate_ratio 
+        self.min_sample_frames = min_sample_frames 
+        self.blur_ratio = blur_ratio
 
-
-    def init_track(self, track_id, vehicle_type="unknown"):
+    def init_track(self, track_id, vehicle_type="unknown", frame_index = 0):
         self.memory[track_id] = {
             "track_id": track_id,
             "vehicle_type": vehicle_type,           
@@ -53,8 +39,8 @@ class PlateTrackingManager:
             # Score
             "best_score": 0.0,            
             # Frame tracking
-            "first_seen_frame": 0,
-            "last_seen_frame": 0,           
+            "first_seen_frame": frame_index,
+            "last_seen_frame": frame_index,           
             # Timestamp
             "first_seen_time": datetime.now().isoformat(),
             "last_seen_time": datetime.now().isoformat(),           
@@ -74,13 +60,58 @@ class PlateTrackingManager:
             "blur_frames": 0,
         }
     
+    def update_plate_status(self, track_id):
+        mem = self.memory[track_id]
+
+        total_frames = mem["last_seen_frame"] - mem["first_seen_frame"] + 1
+        read_attempts = mem.get("read_attempts", 0)
+        successful_reads = mem.get("successful_reads", 0)
+
+        # NO_PLATE
+        if not mem["plate_detected"]:
+            #Đủ sample size mới đánh giá
+            if total_frames >= self.min_sample_frames:
+                no_plate_rate = mem["no_plate_frames"] / max(total_frames, 1)
+                if no_plate_rate >= self.no_plate_ratio:
+                    mem["plate_status"] = PlateStatus.NO_PLATE.value
+            return
+        
+        # UNREADABLE
+        if successful_reads == 0 and read_attempts > 0:
+            # Đủ sample size mới đánh giá
+            if read_attempts >= self.min_sample_frames:
+                actual_blur_ratio = mem["blur_frames"] / max(read_attempts, 1)
+                if actual_blur_ratio >= self.blur_ratio:
+                    mem["plate_status"] = PlateStatus.UNREADABLE.value
+                    return
+            # Chưa đủ sample -> tạm READABLE
+            mem["plate_status"] = PlateStatus.READABLE.value
+            return
+
+        # VERIFIED / LOW_CONFIDENCE / READABLE
+        if successful_reads > 0:
+            best_count = mem.get("best_count", 0)
+            avg_conf = mem.get("avg_confidence", 0)
+            
+            # VERIFIED: Đủ votes + confidence cao
+            if best_count >= self.min_votes and avg_conf >= self.min_confidence:
+                mem["plate_status"] = PlateStatus.VERIFIED.value
+            
+            # LOW_CONFIDENCE: Confidence thấp
+            elif avg_conf < self.min_confidence:
+                mem["plate_status"] = PlateStatus.LOW_CONFIDENCE.value
+            
+            # READABLE: Chưa đủ votes
+            else:
+                mem["plate_status"] = PlateStatus.READABLE.value
+
     def update_no_plate(self, track_id, frame_index):
         """
         Gọi khi vehicle detected nhưng không có plate bbox
 
         """
         if track_id not in self.memory:
-            self.init_track(track_id)
+            self.init_track(track_id, frame_index = frame_index)
         
         mem                     = self.memory[track_id]
         mem["no_plate_frames"] += 1
@@ -96,7 +127,7 @@ class PlateTrackingManager:
         Gọi khi detect được plate nhưng không đọc được ký tự
         """
         if track_id not in self.memory:
-            self.init_track(track_id)
+            self.init_track(track_id, frame_index = frame_index)
         
         mem = self.memory[track_id]
         mem["has_plate"]            = True
@@ -105,16 +136,23 @@ class PlateTrackingManager:
         mem["read_attempts"]        += 1
         mem["blur_frames"]          += 1
         mem["last_seen_frame"]      = frame_index
-        mem["last_seen_time"]       = datetime.now().isoformat()
-        
+        mem["last_seen_time"]       = datetime.now().isoformat()        
+        # # Reset no_plate_frames vì đã thấy plate bbox
+        mem["no_plate_frames"] = 0
         # Cập nhật sharpness trung bình (tránh chia 0)
         n = mem["read_attempts"]
         if n > 0:
             mem["avg_sharpness"] = ((mem["avg_sharpness"] * (n-1)) + sharpness) / n
         
-        # Xác nhận UNREADABLE nếu 5 frame liên tục mờ và chưa đọc được lần nào
-        if mem["blur_frames"] > 5 and mem["successful_reads"] == 0:
-            mem["plate_status"] = PlateStatus.UNREADABLE.value
+        self.update_plate_status(track_id)
+        # # CHỈ set UNREADABLE nếu chưa bao giờ đọc được
+        # if mem["blur_frames"] > 5 and mem["successful_reads"] == 0:
+        #     mem["plate_status"] = PlateStatus.UNREADABLE.value
+        # elif mem["successful_reads"] > 0 and mem["plate_status"] != PlateStatus.VERIFIED.value:
+        #     # Nếu tỷ lệ blur quá cao, hạ xuống LOW_CONFIDENCE
+        #     blur_ratio = mem["blur_frames"] / max(mem["read_attempts"], 1)
+        #     if blur_ratio > 0.5:
+        #         mem["plate_status"] = PlateStatus.LOW_CONFIDENCE.value
 
 
     # === Validation ===
@@ -142,7 +180,7 @@ class PlateTrackingManager:
         return has_digit and has_alpha
 
 
-    def compute_score(self, text, sharpness=0, char_count=0, avg_char_conf=0):
+    def compute_score(self, text, sharpness=0, char_count=0, avg_conf=0):
         """
         Tính điểm chất lượng cho một lần đọc plate
         """
@@ -159,17 +197,17 @@ class PlateTrackingManager:
         score += min(char_count * 2, 20)
         
         # Confidence (max 30 points)
-        score += avg_char_conf * 30
+        score += avg_conf * 30
         
         return score
     
     def update_plate(self, track_id, text, frame_index=0, sharpness=0,
-                     char_count=0, avg_char_conf=0, bbox=None):
+                     char_count=0, avg_conf=0, bbox=None):
         """
         Cập nhật khi đọc được plate text
         """
         if track_id not in self.memory:
-            self.init_track(track_id)
+            self.init_track(track_id, frame_index = frame_index)
         
         mem                         = self.memory[track_id]
         mem["has_plate"]            = True
@@ -177,19 +215,20 @@ class PlateTrackingManager:
         mem["detection_attempts"]   += 1 
         mem["read_attempts"]        += 1
         mem["last_seen_frame"]      = frame_index
-        mem["last_seen_time"]       = datetime.now().isoformat()
-        
+        mem["last_seen_time"]       = datetime.now().isoformat()       
+        mem["no_plate_frames"] = 0
+            
         if bbox is not None:
             mem["last_bbox"] = bbox
         
         # Cập nhật sharpness & confidence trung bình
         n = mem["read_attempts"]
         mem["avg_sharpness"] = ((mem["avg_sharpness"] * (n-1)) + sharpness) / n
-        mem["avg_confidence"] = ((mem["avg_confidence"] * (n-1)) + avg_char_conf) / n
+        mem["avg_confidence"] = ((mem["avg_confidence"] * (n-1)) + avg_conf) / n
         
         # Validate plate
         if not self.is_valid_plate(text):
-            mem["plate_status"] = PlateStatus.UNREADABLE.value
+            self.update_plate_status(track_id)
             return
         
         mem["plate_readable"] = True
@@ -207,36 +246,47 @@ class PlateTrackingManager:
         mem["best_count"] = best_count
         
         # Xác định status
-        if avg_char_conf < self.min_confidence:
-            mem["plate_status"] = PlateStatus.LOW_CONFIDENCE.value
-        elif best_count >= self.min_votes:
-            mem["plate_status"] = PlateStatus.VERIFIED.value
-        else:
-            mem["plate_status"] = PlateStatus.READABLE.value
+        # if avg_conf < self.min_confidence:
+        #     mem["plate_status"] = PlateStatus.LOW_CONFIDENCE.value
+        # elif best_count >= self.min_votes:
+        #     mem["plate_status"] = PlateStatus.VERIFIED.value
+        # else:
+        #     mem["plate_status"] = PlateStatus.READABLE.value
+        # Xác định status với ưu tiên cao hơn
+      # Priority: VERIFIED > READABLE > LOW_CONFIDENCE > UNREADABLE
+        # if best_count >= self.min_votes and avg_conf >= self.min_confidence:
+        #     mem["plate_status"] = PlateStatus.VERIFIED.value  # ← Ưu tiên cao nhất
+        # elif avg_conf < self.min_confidence:
+        #     mem["plate_status"] = PlateStatus.LOW_CONFIDENCE.value
+        # elif best_count >= self.min_votes:
+        #     mem["plate_status"] = PlateStatus.VERIFIED.value
+        # else:
+        #     mem["plate_status"] = PlateStatus.READABLE.value
         
         # Score
-        score = self.compute_score(text, sharpness, char_count, avg_char_conf)
+        score = self.compute_score(text, sharpness, char_count, avg_conf)
         if score > mem["best_score"]:
             mem["best_score"] = score
 
+        self.update_plate_status(track_id)
 
     def get_stable_text(self, track_id):
         """
         Lấy plate text đã được voting ổn định
-        
-        Returns:
-        --------
-        str : Plate text nếu đã đủ votes, ngược lại ""
         """
         if track_id not in self.memory:
             return ""
         
         mem = self.memory[track_id]
         
-        if mem["best_count"] < self.min_votes:
-            return ""
+        # if mem["best_count"] < self.min_votes:
+        #     return ""
         
-        return mem["best_text"]
+        # return mem["best_text"]
+        if mem["successful_reads"] > 0 and mem.get("best_text"):
+            return mem["best_text"]
+    
+        return ""
 
 
     def get_track_result(self, track_id):
