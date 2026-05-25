@@ -2,12 +2,17 @@ import cv2
 import numpy as np
 
 class Filter_Plate:                                                       #2000                             #3000
-    def __init__(self, method: str = "laplacian", char_threshold: float = 1500.0, plate_threshold: float = 2500.0):
+    def __init__(self, method: str = "laplacian", char_threshold: float = 2000.0, plate_threshold: float = 2500.0, area_threshold: float = 50):
         self.method = method
         self.char_threshold = char_threshold
         self.plate_threshold = plate_threshold
+        self.area_threshold = area_threshold
+        self.min_plate_area_ratio = 0.005
+        self.min_plate_width_ratio = 0.02
+        self.min_plate_height_ratio = 0.01
 
-    def _to_gray(self, img):
+
+    def to_gray(self, img):
         if img is None or img.size == 0:
             return None
         if len(img.shape) == 3:
@@ -15,7 +20,7 @@ class Filter_Plate:                                                       #2000 
         return img
 
     def measure_sharpness(self, img) -> float:
-        gray = self._to_gray(img)
+        gray = self.to_gray(img)
         if gray is None:
             return 0.0
 
@@ -69,3 +74,24 @@ class Filter_Plate:                                                       #2000 
         if not vals:
             return 0.0
         return float(np.mean(vals))
+
+    def is_plate_size_valid(self, frame, bbox):
+        H, W = frame.shape[:2]
+        x1, y1, x2, y2 = bbox
+        w = max(0, x2 - x1)
+        h = max(0, y2 - y1)
+        area = w * h
+
+        frame_area = W * H
+
+        # kiểm tra theo tỉ lệ diện tích
+        if area < self.min_plate_area_ratio * frame_area:
+            return False
+
+        # kiểm tra theo tỉ lệ chiều rộng/chiều cao
+        if w < self.min_plate_width_ratio * W:
+            return False
+        if h < self.min_plate_height_ratio * H:
+            return False
+
+        return True

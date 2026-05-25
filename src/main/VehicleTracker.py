@@ -25,6 +25,8 @@ class VehicleTracker:
         return smooth.astype(int)
     
     def update(self, detections):
+        if detections is None:
+            detections = []
         if len(detections) == 0:
             return []
         detections_sv = sv.Detections(
