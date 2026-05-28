@@ -129,18 +129,23 @@ class TrackingManager:
             if frame_index > mem.get("burst_until", 0):
                 mem["burst_mode"] = False
 
-    def update_best_vehicle_frame( self, track_id, frame_index, bbox, sharpness, priority, max_samples=5, vehicle_img = None ):
+    def update_best_vehicle_frame(self, track_id, frame_index, bbox, sharpness,
+                                  priority, max_samples=5, vehicle_img=None,
+                                  frame_ref=None):
         if track_id not in self.memory:
             return
 
         mem = self.memory[track_id]
 
         sample = {
+            "track_id": track_id,
             "frame_idx": frame_index,
             "bbox": bbox,
             "sharpness": sharpness,
             "priority": priority,
-            "vehicle_img": vehicle_img
+            "vehicle_img": vehicle_img,
+            "frame_ref": frame_ref if frame_ref is not None else frame_index,
+            "plate_checked": False
         }
 
         mem["best_vehicle_frames"].append(sample)
@@ -176,9 +181,11 @@ class TrackingManager:
         mem = self.memory[track_id]
 
         for old in mem["best_plate_frames"]:
-            # frame quá gần -> bỏ
-            if abs(frame_index - old["frame_idx"]) < 5:
-                return
+            if frame_index == old["frame_idx"]:
+                if priority <= old.get("priority", 0):
+                    return
+                mem["best_plate_frames"].remove(old)
+                break
         sample = {
             "frame_idx": frame_index,
             "bbox": bbox,

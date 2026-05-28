@@ -1,5 +1,6 @@
 # ===== ENV =====
 .venv/
+.venv_trt
 
 # ===== CVAT =====
 cvat/
@@ -15,4 +16,6 @@ runs/
 # ===== DATA =====
 dataset/
 
+# ===== output ====
+output
 

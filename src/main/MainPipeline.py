@@ -11,7 +11,7 @@ from pathlib import Path
 import re
 from collections import defaultdict, Counter
 import random
-
+import time
 
 class MainPipeline:
     def __init__(self, vehicle_detector,vehicle_tracker, plate_detector, char_detector):
@@ -28,10 +28,9 @@ class MainPipeline:
         self.prev_plate_points = []
         self.smooth_alpha = 0.7
         self.char_to_digit = {
-            'O': '0',
             'Q': '0',
             'D': '0',
-            'I': '1',
+            'A': '4',
             'L': '1',
             'Z': '2',
             'S': '5',
@@ -39,12 +38,11 @@ class MainPipeline:
             'G': '6'
         }
         self.digit_to_char = {
-            '0': 'O',
-            '1': 'I',
             '2': 'Z',
             '5': 'S',
             '8': 'B',
-            '6': 'G'
+            '6': 'G',
+            '4': 'A'
         }
         self.vehicle_colors = {
             "oto"         :(255, 0, 0),    # xanh dương
@@ -53,14 +51,20 @@ class MainPipeline:
             "motorbike"   : (0, 255, 0),# xanh lá
         }
         self.default_vehicle_color = (255, 255, 255)
-        self.vehicle_step = 3
-        self.plate_step   = 5
+        self.vehicle_step = 2
+        self.plate_step   = 6
         self.orc_step     = 8
+        self.vehicle_sample_step = 3
+        self.max_plate_frame_checks_per_cycle = 2
+        self.max_ocr_reads_per_cycle = 3
+        self.max_cached_frames = 30
+        self.max_plate_sample_retries = 2
 
-        self.v_count      = 0
-        self.p_count      = 0
-        self.o_count      = 0
         self.last_detections = []
+        self.last_vehicles = []
+        self.has_vehicle_detection = False
+        self.frame_cache = {}
+        self.plate_detection_cache = {}
         # self.vehicle_names = {
         #     "oto":        "Ô tô",
         #     "xe-tai":     "Xe tải",
@@ -75,6 +79,41 @@ class MainPipeline:
 
     def detect_plates(self, frame):
         return self.plate_detector.detect(frame)
+
+    def cache_frame(self, frame_index, frame):
+        self.frame_cache[frame_index] = frame.copy()
+
+    def get_cached_frame(self, frame_ref):
+        return self.frame_cache.get(frame_ref)
+
+    def prune_frame_caches(self):
+        keep_refs = set()
+        for mem in self.tracking_manager.memory.values():
+            for sample in mem.get("best_vehicle_frames", []):
+                frame_ref = sample.get("frame_ref")
+                if frame_ref is not None:
+                    keep_refs.add(frame_ref)
+            for sample in mem.get("best_plate_frames", []):
+                frame_ref = sample.get("frame_idx")
+                if frame_ref is not None:
+                    keep_refs.add(frame_ref)
+
+        newest_refs = sorted(self.frame_cache.keys(), reverse=True)[:self.max_cached_frames]
+        keep_refs.update(newest_refs)
+
+        for frame_ref in list(self.frame_cache.keys()):
+            if frame_ref not in keep_refs:
+                self.frame_cache.pop(frame_ref, None)
+                self.plate_detection_cache.pop(frame_ref, None)
+
+    def detect_plates_cached(self, frame_ref, frame):
+        if frame_ref not in self.plate_detection_cache:
+            t0 = time.perf_counter()
+            plates = self.detect_plates(frame)
+            plate_detect_time = time.perf_counter() - t0
+            print(f"[Plate Detect] {plate_detect_time*1000:.1f} ms")
+            self.plate_detection_cache[frame_ref] = plates
+        return self.plate_detection_cache[frame_ref]
 
     def prepare_plate_image(self, frame, bbox, pts):
         x1, y1, x2, y2 = bbox
@@ -256,92 +295,12 @@ class MainPipeline:
                         cv2.FONT_HERSHEY_SIMPLEX, 0.6,
                         color, 2, cv2.LINE_AA)
 
-    # def draw_plate_pose_and_text(self, frame, bbox, pts, text, plate_img = None, char_boxes = None, scale = 2.0, offset = (10,-80)):
-    #     x1, y1, x2, y2 = bbox
-    #     # draw box plate
-    #     cv2.rectangle(frame, (x1,y1), (x2,y2), (255,0,0), 1)
-    #     # draw keypoints
-    #     if pts is not None:
-    #         for (x, y) in pts:
-    #             cv2.circle(frame, (int(x), int(y)), 2, (0,0,255), -1)
-
-
-    #     # Check plate image
-    #     if plate_img is None or plate_img.size == 0:
-    #         return
-       
-    #     # Preview size
-    #     bw = x2 - x1
-    #     bh = y2 - y1
-    #     preview_w = int(bw * scale)
-    #     preview_h = int(bh * scale)
-
-
-    #     preview = cv2.resize(plate_img,(preview_w, preview_h))
-
-
-    #     # preview position
-    #     offset = (bw // 2, -bh * 3)
-    #     dx,dy = offset
-    #     px1 = x1 + dx
-    #     py1 = y1 + dy
-    #     px2 = px1 + preview_w
-    #     py2 = py1 + preview_h
-
-
-    #     H, W = frame.shape[:2]
-    #     if px1 < 0:
-    #         px1 = 0
-    #         px2 = preview_w
-
-
-    #     if py1 < 0:
-    #         py1 = 0
-    #         py2 = preview_h
-
-
-    #     if px2 > W:
-    #         px2 = W
-    #         px1 = W - preview_w
-
-
-    #     if py2 > H:
-    #         py2 = H
-    #         py1 = H - preview_h
-
-
-    #     preview_h_actual = py2 - py1
-    #     preview_w_actual = px2 - px1
-
-
-    #     preview = cv2.resize(preview,(preview_w_actual, preview_h_actual))
-
-
-    #     #Paste preview
-    #     frame[py1:py2, px1:px2] = preview
-    #     cv2.rectangle(frame,(px1, py1),(px2, py2),(0, 0, 255),2)
-    #     # if char_boxes:
-    #     #     chars_sorted = sorted(char_boxes,key=lambda c: c["bbox"][0])
-    #     #     char_text = "".join([c["label"] for c in chars_sorted])
-    #     #     cv2.putText(frame,char_text,(px1, py2 + 25),cv2.FONT_HERSHEY_SIMPLEX,0.7,(0, 255, 0),2,cv2.LINE_AA)
-    #     if text:
-    #         cv2.putText(frame, text, (px1, py2 + 25),
-    #             cv2.FONT_HERSHEY_SIMPLEX, 0.9,
-    #             (0, 255, 0), 2, cv2.LINE_AA)
-
     def draw_plate_pose_and_text( self, frame, vehicle_bbox, plate_bbox, pts, text, plate_img=None, char_boxes=None ):
         """
         Vẽ preview biển số bên trong bbox vehicle
         """
         vx1, vy1, vx2, vy2 = vehicle_bbox
         px1, py1, px2, py2 = plate_bbox
-        # ===== Draw plate bbox =====
-        # cv2.rectangle(frame, (px1, py1), (px2, py2), (255, 0, 0), 1)
-        # # ===== Draw plate keypoints =====
-        # if pts is not None:
-        #     for (x, y) in pts:
-        #         cv2.circle(frame, (int(x), int(y)), 2, (0, 0, 255), -1)
-        # ===== Draw points on preview =====
        
         # ===== Không có ảnh biển =====
         if plate_img is None or plate_img.size == 0:
@@ -364,7 +323,7 @@ class MainPipeline:
         preview = cv2.resize(plate_img, (preview_w, preview_h))
 
         # =========================================================
-        # Vẽ preview trong bbox vehicle (góc trên phải)
+        # Vẽ preview trong bbox vehicle
         # =========================================================
 
         margin = 10
@@ -446,6 +405,27 @@ class MainPipeline:
                 cv2.LINE_AA
             )
 
+
+    def estimate_plate_angle_deg(pts):
+        """
+        Trả về góc nghiêng (độ) theo trục ngang.
+        """
+        if pts is None or len(pts) < 2:
+            return 0.0
+
+        # giả sử pts[0] = top-left, pts[1] = top-right
+        x1, y1 = pts[0]
+        x2, y2 = pts[1]
+
+        dx = x2 - x1
+        dy = y2 - y1
+        if dx == 0:
+            return 90.0
+
+        angle_rad = math.atan2(dy, dx)   # góc so với trục x
+        angle_deg = math.degrees(angle_rad)
+        return angle_deg
+    
     # ===== HÀM CHÍNH =====
     # với mỗi plate bbox tìm vehicle bbox nào bao phủ plate rồi lấy track_id đó
     def bbox_iou(self, boxA, boxB):
@@ -469,217 +449,310 @@ class MainPipeline:
         return iou
 
     def process_frame_with_tracked_vehicles(self, frame):
-        """
-        Xử lý frame với tracked vehicles, dùng adaptive ANPR + voting
-        """
-        self.frame_index += 1
-        H, W = frame.shape[:2]
+            """
+            Xử lý frame với tracked vehicles, dùng adaptive ANPR + voting
+            """
+            # self.frame_index += 1
+            total_start = time.perf_counter()
+            H, W = frame.shape[:2]
+            raw_frame = frame.copy()
 
-        detections = self.vehicle_detector.detect(frame)
-        vehicles = self.vehicle_tracker.update(detections)
+            run_vehicle_detection = (
+                self.frame_index % self.vehicle_step == 0
+                or not self.has_vehicle_detection
+            )
+            should_sample_vehicle_frame = ( self.frame_index % self.vehicle_sample_step == 0 )
+            if should_sample_vehicle_frame:
+                self.cache_frame(self.frame_index, raw_frame)
 
-        draw_list = [(track_id, vx1, vy1, vx2, vy2, vconf, vlabel) for (track_id, vx1, vy1, vx2, vy2, vconf, vlabel) in vehicles]
-        self.draw_vehicles(frame, draw_list)
+            if run_vehicle_detection:
+                t0 = time.perf_counter()
+                detections = self.vehicle_detector.detect(raw_frame)
+                vehicle_detect_time = time.perf_counter() - t0
+                print(f"[Vehicle Detect] {vehicle_detect_time*1000:.1f} ms")
+                vehicles = self.vehicle_tracker.update(detections)
+                self.last_vehicles = vehicles
+                self.has_vehicle_detection = True
+            else:
+                vehicles = self.last_vehicles
 
-        # 1. Cập nhật thông tin cơ bản cho các phương tiện đang được track
-        for (track_id, vx1, vy1, vx2, vy2, vconf, vlabel) in vehicles:
-            if track_id not in self.tracking_manager.memory:
-                self.tracking_manager.init_track(
-                    track_id,
-                    vehicle_type=vlabel,
-                    frame_index=self.frame_index
-                )
-            mem = self.tracking_manager.memory[track_id]
-            mem["vehicle_type"] = vlabel
-            mem["last_seen_frame"] = self.frame_index
-            mem["last_seen_time"] = datetime.now().isoformat()
-        
-        # 2. Phát hiện biển số theo chu kỳ plate_step
-        if self.frame_index % self.plate_step == 0:
-            plates = self.detect_plates(frame)
-            for plate in plates:
-                bbox = plate["bbox"]      # (px1,py1,px2,py2)
-                pts  = plate["points"]
-                px1, py1, px2, py2 = bbox
+            draw_list = [(track_id, vx1, vy1, vx2, vy2, vconf, vlabel) for (track_id, vx1, vy1, vx2, vy2, vconf, vlabel) in vehicles]
+            self.draw_vehicles(frame, draw_list)
 
-                best_tid = None
-                cx = (px1 + px2) / 2.0
-                cy = (py1 + py2) / 2.0
-                for (track_id, vx1, vy1, vx2, vy2, vconf, vlabel) in vehicles:
-                    inside = (vx1 <= cx <= vx2) and (vy1 <= cy <= vy2)
-                    if inside:
-                        best_tid = track_id
-                        break
-
-                if best_tid is None:
-                    continue
-
-                plate_img_for_char, plate_crop, sharpness, ok = self.prepare_plate_image(frame, bbox, pts)
-                x1, y1, x2, y2 = bbox
-                area = max(0, (x2 - x1) * (y2 - y1))
-                priority = sharpness + 0.01 * area
-                
-                self.tracking_manager.update_best_plate_frame(
-                        track_id=best_tid,
-                        frame_index=self.frame_index,
-                        bbox=bbox,
-                        sharpness=sharpness,
-                        priority=priority,
-                        plate_img=plate_img_for_char if ok else None,
-                        pts=pts,
-                        vehicle_bbox=(vx1, vy1, vx2, vy2),
-                        max_samples=5
+            # 1. Cập nhật thông tin cơ bản cho các phương tiện đang được track
+            for (track_id, vx1, vy1, vx2, vy2, vconf, vlabel) in vehicles:
+                if track_id not in self.tracking_manager.memory:
+                    self.tracking_manager.init_track(
+                        track_id,
+                        vehicle_type=vlabel,
+                        frame_index=self.frame_index
                     )
-                if not ok or plate_img_for_char is None:
-                        self.tracking_manager.update_unreadable_plate(
-                            track_id=best_tid,
-                            frame_index=self.frame_index,
-                            sharpness=sharpness,
-                            reason="blur"
-                        )
+                mem = self.tracking_manager.memory[track_id]
+                mem["vehicle_type"] = vlabel
+                mem["last_seen_frame"] = self.frame_index
+                mem["last_seen_time"] = datetime.now().isoformat()
+
+                if should_sample_vehicle_frame:
+                    vx1c, vy1c = max(0, vx1), max(0, vy1)
+                    vx2c, vy2c = min(W, vx2), min(H, vy2)
+                    if vx2c <= vx1c or vy2c <= vy1c:
                         continue
 
-        # 3. Chạy nhận diện ký tự (OCR) theo chu kỳ orc_step
-        if self.frame_index % self.orc_step == 0:
-            for (track_id, vx1, vy1, vx2, vy2, vconf, vlabel) in vehicles:
-                best_samples = self.tracking_manager.get_best_plate_samples(track_id, top_k=5)
-                if not best_samples:
-                    continue
-                best_sample = best_samples[0]
-                bbox = best_sample["bbox"]
-                plate_img_for_char = best_sample.get("plate_img")
+                    vehicle_roi = raw_frame[vy1c:vy2c, vx1c:vx2c]
+                    if vehicle_roi.size == 0:
+                        continue
 
-                if plate_img_for_char is None:
-                    continue
-                    
-                chars = self.char_detector.detect(plate_img_for_char)
-                chars = self.filter_plate.char_sharpness(plate_img_for_char, chars)
-                chars_for_text = chars
+                    gray = cv2.cvtColor(vehicle_roi, cv2.COLOR_BGR2GRAY)
+                    sharp = cv2.Laplacian(gray, cv2.CV_64F).var()
+                    area = max(0, (vx2c - vx1c) * (vy2c - vy1c))
+                    priority = sharp + 0.01 * area
 
-                if len(chars_for_text) < 4:
-                    self.tracking_manager.update_unreadable_plate(
+                    self.tracking_manager.update_best_vehicle_frame(
                         track_id=track_id,
                         frame_index=self.frame_index,
-                        sharpness=best_sample["sharpness"],
-                        reason="insufficient_chars"
+                        bbox=(vx1c, vy1c, vx2c, vy2c),
+                        sharpness=sharp,
+                        priority=priority,
+                        vehicle_img=None,
+                        frame_ref=self.frame_index,
+                        max_samples=6
                     )
-                    quality_score = best_sample["sharpness"]
-                    self.tracking_manager.update_after_anpr(
-                        track_id, self.frame_index, quality_score
+            
+            # 2. Phát hiện biển số theo chu kỳ plate_step
+            if self.frame_index % self.plate_step == 0:
+                plate_frame_checks = 0
+                for (track_id, vx1, vy1, vx2, vy2, vconf, vlabel) in vehicles:
+                    if plate_frame_checks >= self.max_plate_frame_checks_per_cycle:
+                        break
+                    mem = self.tracking_manager.memory.get(track_id, {})
+                    if mem.get("best_text") and mem.get("best_count", 0) >= self.tracking_manager.min_votes:
+                        continue
+
+                    top_samples = self.tracking_manager.get_best_vehicle_samples(
+                        track_id,
+                        top_k=3
                     )
+                    for sample in top_samples:
+                        if plate_frame_checks >= self.max_plate_frame_checks_per_cycle:
+                            break
+                        if sample.get("plate_checked"):
+                            continue
+                        if sample.get("plate_attempts", 0) >= self.max_plate_sample_retries:
+                            sample["plate_checked"] = True
+                            continue
+                        if self.frame_index < sample.get("retry_after_frame", -1):
+                            continue
+
+                        sample_track_id = sample.get("track_id", track_id)
+                        if sample_track_id not in self.tracking_manager.memory:
+                            sample["plate_checked"] = True
+                            continue
+
+                        frame_ref = sample.get("frame_ref", sample.get("frame_idx"))
+                        scene_frame = sample.get("vehicle_img")
+                        if scene_frame is None and frame_ref is not None:
+                            scene_frame = self.get_cached_frame(frame_ref)
+                        if scene_frame is None or scene_frame.size == 0:
+                            sample["plate_checked"] = True
+                            continue
+
+                        sample["plate_attempts"] = sample.get("plate_attempts", 0) + 1
+                        sample["retry_after_frame"] = self.frame_index + self.plate_step
+                        plate_frame_checks += 1
+
+                        vehicle_bbox = sample["bbox"]
+                        vx1s, vy1s, vx2s, vy2s = vehicle_bbox
+
+                        if frame_ref is not None:
+                            plates = self.detect_plates_cached(frame_ref, scene_frame)
+                        else:
+                            t0 = time.perf_counter()
+                            plates = self.detect_plates(scene_frame)
+                            plate_detect_time = time.perf_counter() - t0
+                            print(f"[Plate Detect] {plate_detect_time*1000:.1f} ms")
+
+                        found_plate_for_sample = False
+                        for plate in plates:
+                            bbox = plate["bbox"]
+                            pts = plate["points"]
+                            px1, py1, px2, py2 = bbox
+                            cx = (px1 + px2) / 2.0
+                            cy = (py1 + py2) / 2.0
+                            if not (vx1s <= cx <= vx2s and vy1s <= cy <= vy2s):
+                                continue
+
+                            plate_img_for_char, plate_crop, sharpness, ok = \
+                                self.prepare_plate_image(scene_frame, bbox, pts)
+                            area = max(0, (px2 - px1) * (py2 - py1))
+                            priority = sharpness + 0.01 * area
+
+                            if not ok or plate_img_for_char is None:
+                                self.tracking_manager.update_unreadable_plate(
+                                    track_id=sample_track_id,
+                                    frame_index=self.frame_index,
+                                    sharpness=sharpness,
+                                    reason="blur_or_cut"
+                                )
+                                continue
+
+                            found_plate_for_sample = True
+                            sample["plate_checked"] = True
+                            self.tracking_manager.update_best_plate_frame(
+                                track_id=sample_track_id,
+                                frame_index=sample["frame_idx"],
+                                bbox=bbox,
+                                sharpness=sharpness,
+                                priority=priority,
+                                plate_img=plate_img_for_char,
+                                pts=pts,
+                                vehicle_bbox=vehicle_bbox,
+                                max_samples=8
+                            )
+
+                        if not found_plate_for_sample and sample.get("plate_attempts", 0) >= self.max_plate_sample_retries:
+                            sample["plate_checked"] = True
+
+            # 3. Chạy nhận diện ký tự (OCR) theo chu kỳ orc_step
+            if self.frame_index % self.orc_step == 0:
+                for (track_id, vx1, vy1, vx2, vy2, vconf, vlabel) in vehicles:
+                    best_samples = self.tracking_manager.get_best_plate_samples(track_id, top_k=8)
+                    if not best_samples:
+                        continue
+                    for best_sample in best_samples:
+                        if best_sample.get("ocr_failed"):
+                            continue
+
+                        bbox = best_sample["bbox"]
+                        plate_img_for_char = best_sample.get("plate_img")
+
+                        if plate_img_for_char is None:
+                            best_sample["ocr_failed"] = True
+                            continue
+                            
+                        t0 = time.perf_counter()
+
+                        chars = self.char_detector.detect(plate_img_for_char)
+
+                        ocr_time = time.perf_counter() - t0
+
+                        print(f"[OCR] {ocr_time*1000:.1f} ms")
+                        chars = self.filter_plate.char_sharpness(plate_img_for_char, chars)
+                        chars_for_text = chars
+
+                        if len(chars_for_text) < 4:
+                            best_sample["ocr_failed"] = True
+                            self.tracking_manager.update_unreadable_plate(
+                                track_id=track_id,
+                                frame_index=self.frame_index,
+                                sharpness=best_sample["sharpness"],
+                                reason="insufficient_chars"
+                            )
+                            quality_score = best_sample["sharpness"]
+                            self.tracking_manager.update_after_anpr(
+                                track_id, self.frame_index, quality_score
+                            )
+                            continue
+
+                        raw_text = self.chars_to_text(chars_for_text)
+                        text = self.format_plate(raw_text)
+
+                        char_confs = [c.get("conf", 0) for c in chars_for_text]
+                        avg_conf = (sum(char_confs) / len(char_confs) if char_confs else 0)
+                        before_successful_reads = self.tracking_manager.memory.get(
+                            track_id, {}
+                        ).get("successful_reads", 0)
+
+                        self.tracking_manager.update_plate(
+                            track_id=track_id,
+                            text=text,
+                            frame_index=self.frame_index,
+                            sharpness=best_sample["sharpness"],
+                            char_count=len(chars_for_text),
+                            avg_conf=avg_conf,
+                            bbox=bbox
+                        )
+                        after_successful_reads = self.tracking_manager.memory.get(
+                            track_id, {}
+                        ).get("successful_reads", 0)
+                        if after_successful_reads <= before_successful_reads:
+                            best_sample["ocr_failed"] = True
+                            continue
+
+                        char_avg_sharp = self.filter_plate.avg_sharpness(chars_for_text, ignore_blur=False)
+                        quality_score = best_sample["sharpness"] + char_avg_sharp * 0.3 + avg_conf * 50.0
+                        self.tracking_manager.update_after_anpr(
+                            track_id, self.frame_index, quality_score
+                        )
+                        stable_text = self.tracking_manager.get_stable_text(track_id)
+                        display_text = stable_text if stable_text else text
+                        self.tracking_manager.update_display_info(track_id, display_text)
+                        break
+
+            # 4. RENDERING ZONE: Vẽ đồ họa lên từng khung hình (Chạy ở MỌI frame)
+            for (track_id, vx1, vy1, vx2, vy2, vconf, vlabel) in vehicles:
+                disp = self.tracking_manager.get_display_info(track_id)
+                if not disp or not disp.get('text'):
+                    continue # Bỏ qua, không vẽ nếu chưa đọc được chữ / biển không đọc được
+                
+                display_text = disp['text']
+
+                best_samples = self.tracking_manager.get_best_plate_samples(track_id, top_k=1)
+                if not best_samples:
+                    continue
+                
+                best_sample = best_samples[0]
+            # disp = self.tracking_manager.get_display_info(track_id)
+                display_text = disp['text'] 
+
+                # Lấy thông tin bounding box hiện tại của phương tiện để đồng bộ vị trí vẽ
+                current_vehicle_bbox = (vx1, vy1, vx2, vy2)
+
+                if best_sample.get("plate_img") is not None:
+                    draw_start = time.perf_counter()
+                    self.draw_plate_pose_and_text(
+                        frame,
+                        current_vehicle_bbox,
+                        best_sample["bbox"], 
+                        best_sample.get("pts"),
+                        display_text,
+                        best_sample.get("plate_img"),
+                        char_boxes=None # Có thể truyền list char nếu cần vẽ từng ký tự cụ thể
+                    )
+                    draw_time = time.perf_counter() - draw_start
+                    print(f"[DRAW] {draw_time*1000:.1f} ms")
+
+            # # 5. Dọn dẹp và kết xuất kết quả danh sách tracking
+            self.tracking_manager.remove_expired_tracks(self.frame_index)
+            self.prune_frame_caches()
+            results = []
+            for (track_id, vx1, vy1, vx2, vy2, vconf, vlabel) in vehicles:
+                track_result = self.tracking_manager.get_track_result(track_id)
+                if track_result:
+                    results.append(track_result)
+
+            # 6. In danh sách tổng hợp góc trên bên trái màn hình
+            y_offset = 100
+            for (track_id, vx1, vy1, vx2, vy2, vconf, vlabel) in vehicles:
+                disp = self.tracking_manager.get_display_info(track_id)
+                if not disp:
                     continue
 
-                raw_text = self.chars_to_text(chars_for_text)
-                text = self.format_plate(raw_text)
-
-                char_confs = [c.get("conf", 0) for c in chars_for_text]
-                avg_conf = (sum(char_confs) / len(char_confs) if char_confs else 0)
-
-                self.tracking_manager.update_plate(
-                    track_id=track_id,
-                    text=text,
-                    frame_index=self.frame_index,
-                    sharpness=best_sample["sharpness"],
-                    char_count=len(chars_for_text),
-                    avg_conf=avg_conf,
-                    bbox=bbox
-                )
-
-                char_avg_sharp = self.filter_plate.avg_sharpness(chars_for_text, ignore_blur=False)
-                quality_score = best_sample["sharpness"] + char_avg_sharp * 0.3 + avg_conf * 50.0
-                self.tracking_manager.update_after_anpr(
-                    track_id, self.frame_index, quality_score
-                )
-                stable_text = self.tracking_manager.get_stable_text(track_id)
-                display_text = stable_text if stable_text else text
-                self.tracking_manager.update_display_info(track_id, display_text)
-
-        # 4. RENDERING ZONE: Vẽ đồ họa lên từng khung hình (Chạy ở MỌI frame)
-        for (track_id, vx1, vy1, vx2, vy2, vconf, vlabel) in vehicles:
-            disp = self.tracking_manager.get_display_info(track_id)
-            if not disp or not disp.get('text'):
-                continue # Bỏ qua, không vẽ nếu chưa đọc được chữ / biển không đọc được
-            
-            display_text = disp['text']
-
-            best_samples = self.tracking_manager.get_best_plate_samples(track_id, top_k=1)
-            if not best_samples:
-                continue
-            
-            best_sample = best_samples[0]
-           # disp = self.tracking_manager.get_display_info(track_id)
-            display_text = disp['text'] 
-
-            # Lấy thông tin bounding box hiện tại của phương tiện để đồng bộ vị trí vẽ
-            current_vehicle_bbox = (vx1, vy1, vx2, vy2)
-
-            if best_sample.get("plate_img") is not None:
-                self.draw_plate_pose_and_text(
+                label_str = f"ID:{track_id}| {vlabel} | {disp['text']}"
+                cv2.putText(
                     frame,
-                    current_vehicle_bbox,
-                    best_sample["bbox"], 
-                    best_sample.get("pts"),
-                    display_text,
-                    best_sample.get("plate_img"),
-                    char_boxes=None # Có thể truyền list char nếu cần vẽ từng ký tự cụ thể
+                    label_str,
+                    (10, y_offset),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.9,
+                    (0, 255, 0),
+                    1,
+                    cv2.LINE_AA
                 )
+                y_offset += 30
 
-        # 5. Dọn dẹp và kết xuất kết quả danh sách tracking
-        self.tracking_manager.remove_expired_tracks(self.frame_index)
-        results = []
-        for (track_id, vx1, vy1, vx2, vy2, vconf, vlabel) in vehicles:
-            track_result = self.tracking_manager.get_track_result(track_id)
-            if track_result:
-                results.append(track_result)
+            total_time = time.perf_counter() - total_start
 
-        # 6. In danh sách tổng hợp góc trên bên trái màn hình
-        y_offset = 100
-        for (track_id, vx1, vy1, vx2, vy2, vconf, vlabel) in vehicles:
-            disp = self.tracking_manager.get_display_info(track_id)
-            if not disp:
-                continue
+            fps = 1.0 / total_time if total_time > 0 else 0
 
-            label_str = f"ID:{track_id}| {vlabel} | {disp['text']}"
-            cv2.putText(
-                frame,
-                label_str,
-                (10, y_offset),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.9,
-                (0, 255, 0),
-                1,
-                cv2.LINE_AA
-            )
-            y_offset += 30
-
-        return frame, results
-
-def run_on_image(image_path, pipeline, save_path=None, show=True):
-    img = cv2.imread(image_path)
-    if img is None:
-        raise ValueError("Không đọc được ảnh")
-
-    out_img, results = pipeline.process_frame_with_tracked_vehicles(img)
-
-    if save_path is not None:
-        # nếu save_path là folder -> tự tạo tên file
-        if os.path.isdir(save_path):
-            os.makedirs(save_path, exist_ok=True)
-            base = os.path.basename(image_path)          
-            name, ext = os.path.splitext(base)         
-            out_path = os.path.join(save_path, name + "_out5" + ext)
-        else:
-            # save_path đã là full path tới file
-            os.makedirs(os.path.dirname(save_path), exist_ok=True)
-            out_path = save_path
-
-        # ok = cv2.imwrite(out_path, out_img)
-        # if not ok:
-        #     print("[-] Lưu ảnh thất bại tại:", out_path)
-
-    if show:
-        cv2.imshow("Result", out_img)
-        cv2.waitKey(0)
-        cv2.destroyAllWindows()
-
-    return out_img, results
+            print(f"[TOTAL] {total_time*1000:.1f} ms | FPS: {fps:.1f}")
+            return frame, results

@@ -2,7 +2,7 @@ import cv2
 import numpy as np
 
 class Filter_Plate:                                                       #2000                             #3000
-    def __init__(self, method: str = "laplacian", char_threshold: float = 2000.0, plate_threshold: float = 2500.0, area_threshold: float = 50):
+    def __init__(self, method: str = "laplacian", char_threshold: float = 2000.0, plate_threshold: float = 3000.0, area_threshold: float = 50):
         self.method = method
         self.char_threshold = char_threshold
         self.plate_threshold = plate_threshold

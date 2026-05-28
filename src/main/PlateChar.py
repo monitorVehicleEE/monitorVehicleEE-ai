@@ -1,11 +1,19 @@
 from ultralytics import YOLO
 
 class PlateChar:
-    def __init__(self, model_path):
+    def __init__(self, model_path, device=0, imgsz=320):
         self.model = YOLO(model_path)
+        self.device = device
+        self.imgsz = imgsz
 
     def detect(self, frame):
-        results = self.model(frame, conf=0.3)[0]
+        results = self.model(
+            frame,
+            conf=0.3,
+            imgsz=self.imgsz,
+            device=self.device,
+            verbose=False
+        )[0]
 
         chars = []
 

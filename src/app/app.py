@@ -15,6 +15,9 @@ from src.main.VehicleDetector import VehicleDetector
 import cv2
 import time
 
+STREAM_TIMING_LOG = False
+STREAM_JPEG_QUALITY = 75
+
 # =========================================================
 # FASTAPI
 # =========================================================
@@ -39,11 +42,11 @@ camera_lock = Lock()
 # LOAD YOLO MODEL 1 LẦN
 # =========================================================
 
-detector_vehicle = VehicleDetector("./runs/detect/runs_vehicle/yolo11s_vehicle_v2/weights/best.pt")
+detector_vehicle = VehicleDetector("./runs/detect/runs_vehicle/yolo11s_vehicle_v2/weights/best.pt", device=0)
 
-detector_plate = PlateDetector("./runs/pose/runs_detect_plate/yl11s_dp_ver6/weights/best.pt")
+detector_plate = PlateDetector("./runs/pose/runs_detect_plate/yl11s_dp_ver6/weights/best.pt", device=0)
 
-detector_char = PlateChar("./runs/detect/runs_read_plate/yolo11s_read_plate_v6/weights/best.pt")
+detector_char = PlateChar("./runs/detect/runs_read_plate/yolo11s_read_plate_v6/weights/best.pt", device=0)
 
 # =========================================================
 # CAMERA STORE
@@ -99,18 +102,36 @@ def generate_frames(runner, width=640):
                 continue
             
             original_h, original_w = frame.shape[:2]
-            print(f"[ORIGINAL] {original_w}x{original_h}")
+            # print(f"[ORIGINAL] {original_w}x{original_h}")
 
 
             # resize giữ tỉ lệ
             if width is not None:
-                frame = resize_keep_ratio(frame, width)
+                t0 = time.perf_counter()
+
+            frame = resize_keep_ratio(frame, width)
+
+            resize_time = time.perf_counter() - t0
+
+            if STREAM_TIMING_LOG:
+                print(f"[RESIZE] {resize_time*1000:.1f} ms")
 
             resized_h, resized_w = frame.shape[:2]
 
-            print(f"[RESIZED FRAME] {frame.shape[1]}x{frame.shape[0]}")
+            # print(f"[RESIZED FRAME] {frame.shape[1]}x{frame.shape[0]}")
 
-            success, buffer = cv2.imencode(".jpg", frame)
+            t0 = time.perf_counter()
+
+            success, buffer = cv2.imencode(
+                ".jpg",
+                frame,
+                [cv2.IMWRITE_JPEG_QUALITY, STREAM_JPEG_QUALITY]
+            )
+
+            jpeg_time = time.perf_counter() - t0
+
+            if STREAM_TIMING_LOG:
+                print(f"[JPEG] {jpeg_time*1000:.1f} ms")
 
             if not success:
                 continue
@@ -198,9 +219,10 @@ def start_stream(cam_id: str):
             cam_id=cam_id,
             video_source=video_source,
             pipeline=pipeline,
-            save_dir="./output",
-            show=False
-        )
+            save_dir="./dataset/output_test/",
+            show=False,
+            drop_late_frames=True,
+            max_frame_skip=1)
 
         runner.on_finish = remove_camera
 

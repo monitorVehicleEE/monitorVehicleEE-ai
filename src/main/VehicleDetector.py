@@ -1,11 +1,12 @@
 from ultralytics import YOLO
 
 class VehicleDetector:
-    def __init__(self,model_path):
+    def __init__(self,model_path, device = 0):
         self.model = YOLO(model_path)
+        self.device = device
 
     def detect(self, frame):
-        results = self.model(frame, conf = 0.4)[0] # 1 frame -> kêt quả của frame đó
+        results = self.model(frame, conf=0.4, device=self.device, verbose=False)[0]
         vehicles = []
         for box in results.boxes:
             x1, y1, x2, y2 = map(int, box.xyxy[0])

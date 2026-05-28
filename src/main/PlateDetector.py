@@ -1,11 +1,20 @@
 from ultralytics import YOLO
 
 class PlateDetector:
-    def __init__(self, model_path):
+    def __init__(self, model_path, device=0, conf=0.25, imgsz=640):
         self.model = YOLO(model_path)
-
+        self.device = device
+        self.conf = conf
+        self.imgsz = imgsz
+        
     def detect(self, frame):
-        results = self.model(frame, conf=0.4)[0]
+        results = self.model(
+            frame,
+            conf=self.conf,
+            imgsz=self.imgsz,
+            device=self.device,
+            verbose=False
+        )[0]
 
         plates = []
 
