@@ -11,7 +11,15 @@
 # cài đặt cvat: git clone https://github.com/opencv/cvat
 # pillow : pip install pillow
 # pip install numpy==1.26.4
+
+
+
+### dành cho xài tensorrt ###
 # gỡ torch cũ: pip uninstall torch torchvision torchaudio -y
 # cài torch phù hợp để export sang tensortRT: pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
 # Cài ONNX + TensorRT dependencies: pip install onnx onnxruntime-gpu
-# càu tensortRT: pip install tensorrt
+# càu tensortRT: pip install tensorrt || pip install tensorrt==10.11.0.33
+# trtexec --onnx=model/pytorch/vehicle/best.onnx --saveEngine=best.engine --fp16
+
+# run server
+uvicorn src.app.app:app --reload --port 8001

@@ -1,5 +1,5 @@
 from threading import Thread, Lock
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from fastapi import Request
@@ -13,10 +13,17 @@ from src.main.VehicleDetector import VehicleDetector
 
 
 import cv2
+import json
+import os
 import time
+from urllib.error import HTTPError, URLError
+from urllib.request import urlopen
 
 STREAM_TIMING_LOG = False
 STREAM_JPEG_QUALITY = 75
+START_READY_TIMEOUT = 60.0
+CAMERA_API_URL = os.getenv("CAMERA_API_URL", "http://localhost:8000")
+VIDEO_BASE_DIR = os.getenv("VIDEO_BASE_DIR", "./dataset/vehicle/videos")
 
 # =========================================================
 # FASTAPI
@@ -42,17 +49,30 @@ camera_lock = Lock()
 # LOAD YOLO MODEL 1 LẦN
 # =========================================================
 
-detector_vehicle = VehicleDetector("./runs/detect/runs_vehicle/yolo11s_vehicle_v2/weights/best.pt", device=0)
+detector_vehicle = VehicleDetector("./model/pytorch/vehicle/best.pt", device=0)
 
-detector_plate = PlateDetector("./runs/pose/runs_detect_plate/yl11s_dp_ver6/weights/best.pt", device=0)
+detector_plate = PlateDetector("./model/pytorch/plate/best.pt", device=0)
 
-detector_char = PlateChar("./runs/detect/runs_read_plate/yolo11s_read_plate_v6/weights/best.pt", device=0)
+detector_char = PlateChar("./model/pytorch/char/best.pt", device=0)
 
 # =========================================================
 # CAMERA STORE
 # =========================================================
 
 camera_runners = {}
+
+def wait_until_detect_started(runner, timeout=START_READY_TIMEOUT):
+
+    deadline = time.perf_counter() + timeout
+
+    while runner.running and not runner.detect_started:
+
+        if time.perf_counter() >= deadline:
+            return False
+
+        time.sleep(0.05)
+
+    return runner.running and runner.detect_started
 
 # =========================================================
 # CAMERA SOURCE MAP
@@ -63,6 +83,76 @@ CAMERA_SOURCES = {
     "entry_cam": "./dataset/vehicle/videos/27.mp4",
     "exit_cam": "./dataset/vehicle/videos/27.mp4",
 }
+
+
+def fetch_camera_config(cam_id):
+    url = f"{CAMERA_API_URL.rstrip('/')}/cameras/{cam_id}"
+
+    try:
+        with urlopen(url, timeout=5) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except HTTPError as exc:
+        if exc.code == 404:
+            raise HTTPException(
+                status_code=404,
+                detail=f"camera not found in backend: {cam_id}"
+            )
+
+        raise HTTPException(
+            status_code=502,
+            detail=f"backend camera api error: {exc.code}"
+        )
+    except URLError as exc:
+        fallback_source = CAMERA_SOURCES.get(cam_id)
+        if fallback_source:
+            return {
+                "id": cam_id,
+                "source_type": "file",
+                "source_path": fallback_source,
+            }
+
+        raise HTTPException(
+            status_code=502,
+            detail=f"cannot connect to backend camera api: {exc.reason}"
+        )
+
+
+def resolve_camera_source(camera):
+    source_type = str(camera.get("source_type") or "").lower()
+    source_path = str(camera.get("source_path") or "").strip()
+
+    if not source_path:
+        raise HTTPException(
+            status_code=400,
+            detail="camera source_path is empty"
+        )
+
+    if source_type in {"rtsp", "http", "https"}:
+        return source_path
+
+    if source_type != "file":
+        raise HTTPException(
+            status_code=400,
+            detail=f"unsupported camera source_type: {source_type}"
+        )
+
+    if os.path.isabs(source_path):
+        candidate_paths = [source_path]
+    else:
+        candidate_paths = [
+            source_path,
+            os.path.join(VIDEO_BASE_DIR, source_path),
+        ]
+
+    for candidate_path in candidate_paths:
+        normalized_path = os.path.normpath(candidate_path)
+        if os.path.isfile(normalized_path):
+            return normalized_path
+
+    raise HTTPException(
+        status_code=404,
+        detail=f"video file not found: {source_path}"
+    )
 
 # =========================================================
 # REMOVE CAMERA
@@ -189,19 +279,16 @@ def start_stream(cam_id: str):
 
             if runner.running:
 
+                ready = wait_until_detect_started(runner)
+
                 return {
-                    "status": "already_running",
-                    "cam_id": cam_id
+                    "status": "already_running" if ready else "starting",
+                    "cam_id": cam_id,
+                    "ready": ready
                 }
 
-        # source
-        video_source = CAMERA_SOURCES.get(cam_id)
-
-        if video_source is None:
-
-            return {
-                "error": f"camera source not found: {cam_id}"
-            }
+        camera = fetch_camera_config(cam_id)
+        video_source = resolve_camera_source(camera)
 
         # tracker riêng cho từng camera
         tracker_vehicle = VehicleTracker()
@@ -240,9 +327,13 @@ def start_stream(cam_id: str):
 
         print(f"[INFO] Started camera: {cam_id}")
 
+        ready = wait_until_detect_started(runner)
+
         return {
-            "status": "started",
-            "cam_id": cam_id
+            "status": "started" if ready else "starting",
+            "cam_id": cam_id,
+            "source": video_source,
+            "ready": ready
         }
 
 # =========================================================
@@ -291,7 +382,7 @@ def camera_status(cam_id: str):
         }
 
     return {
-        "running": runner.running
+        "running": runner.running and runner.detect_started
     }
 
 # =========================================================
@@ -307,7 +398,7 @@ def get_cameras():
 
         result.append({
             "cam_id": cam_id,
-            "running": runner.running
+            "running": runner.running and runner.detect_started
         })
 
     return result

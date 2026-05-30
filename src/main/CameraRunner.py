@@ -49,6 +49,7 @@ class CameraRunner:
 
         self.frame_idx = 0
         self.running = False
+        self.detect_started = False
 
         self.orig_fps = 30.0
         self.frame_interval = 1.0 / self.orig_fps
@@ -100,24 +101,25 @@ class CameraRunner:
         os.makedirs(self.save_dir, exist_ok=True)
 
         fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-        out_path = self.make_unique_path(
-            os.path.join(
-                self.save_dir,
-                f"{self.cam_id}_tracked.mp4"
-            )
-        )
+        # out_path = self.make_unique_path(
+        #     os.path.join(
+        #         self.save_dir,
+        #         f"{self.cam_id}_tracked.mp4"
+        #     )
+        # )
 
-        self.writer = cv2.VideoWriter(
-            out_path,
-            fourcc,
-            self.orig_fps,
-            (w, h)
-        )
+        # self.writer = cv2.VideoWriter(
+        #     out_path,
+        #     fourcc,
+        #     self.orig_fps,
+        #     (w, h)
+        # )
 
         # Đưa lại cap về frame đầu tiên
         self.cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
 
         self.running = True
+        self.detect_started = False
         self.frame_idx = 0
 
     # =====================================================
@@ -144,6 +146,7 @@ class CameraRunner:
 
                 self.latest_frame = out_frame
                 self.latest_frame_idx = self.frame_idx
+                self.detect_started = True
 
                 # Dọn track cũ theo chu kỳ (nếu cần)
                 if self.frame_idx > 0 and self.frame_idx % 30 == 0:
@@ -189,6 +192,7 @@ class CameraRunner:
 
     def stop(self):
         self.running = False
+        self.detect_started = False
         self.latest_frame = None
         self.latest_frame_idx = -1
 
@@ -229,14 +233,14 @@ class CameraRunner:
 
         print("[INFO] Saving JSON:", json_path)
 
-        with open(json_path, "w", encoding="utf-8") as f:
-            json.dump(to_jsonable({
-                "camera_id": self.cam_id,
-                "video_source": self.video_source,
-                "total_frames": self.frame_idx,
-                "total_vehicles": len(results),
-                "vehicles": results,
-            }), f, ensure_ascii=False, indent=2)
+        # with open(json_path, "w", encoding="utf-8") as f:
+        #     json.dump(to_jsonable({
+        #         "camera_id": self.cam_id,
+        #         "video_source": self.video_source,
+        #         "total_frames": self.frame_idx,
+        #         "total_vehicles": len(results),
+        #         "vehicles": results,
+        #     }), f, ensure_ascii=False, indent=2)
 
         self.pipeline.tracking_manager.clear_finalized()
 
