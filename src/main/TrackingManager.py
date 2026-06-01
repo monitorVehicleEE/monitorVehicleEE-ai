@@ -55,7 +55,7 @@ class TrackingManager:
             "detection_attempts": 0,
 
             # Bounding box
-            "last_bbox": None,
+            "last_bbox_plate": None,
 
             # Finalized flag
             "finalized": False,
@@ -317,7 +317,7 @@ class TrackingManager:
         mem["no_plate_frames"] = 0
 
         if bbox is not None:
-            mem["last_bbox"] = bbox
+            mem["last_bbox_plate"] = bbox
 
         n = mem["read_attempts"]
         mem["avg_sharpness"] = ((mem["avg_sharpness"] * (n - 1)) + sharpness) / n
@@ -370,25 +370,7 @@ class TrackingManager:
     def get_track_result(self, track_id):
         if track_id not in self.memory:
             return None
-        mem = self.memory[track_id]
-        stable_text = self.get_stable_text(track_id)
-        return {
-            "track_id"          : track_id,
-            "vehicle_type"      : mem["vehicle_type"],
-            "plate_text"        : stable_text,
-            "vote_count"        : mem["best_count"],
-            "best_score"        : mem["best_score"],
-            "read_attempts"     : mem["read_attempts"],
-            "successful_reads"  : mem["successful_reads"],
-            "bbox"              : mem["last_bbox"],
-            "first_seen"        : mem["first_seen_time"],
-            "last_seen"         : mem["last_seen_time"],
-            "plate_detected"    : mem["plate_detected"],
-            "plate_readable"    : mem["plate_readable"],
-            "status"            : mem["plate_status"],
-            "avg_confidence"    : mem["avg_confidence"],
-            "avg_sharpness"     : mem["avg_sharpness"]
-        }
+        return self._build_result_from_mem(self.memory[track_id])
 
     # ====== LIFECYCLE ======
     def remove_expired_tracks(self, current_frame):
@@ -417,10 +399,90 @@ class TrackingManager:
             if not self.memory[track_id].get("finalized", False):
                 self.finalize_track(track_id)
 
+    def _select_best_plate_sample(self, mem):
+        samples = [
+            sample for sample in mem.get("best_plate_frames", [])
+            if sample.get("plate_img") is not None
+        ]
+        if not samples:
+            return {}
+
+        stable_text = mem.get("best_text") or ""
+        readable_samples = [
+            sample for sample in samples
+            if sample.get("ocr_success")
+        ]
+
+        if stable_text:
+            stable_samples = [
+                sample for sample in readable_samples
+                if sample.get("ocr_text") == stable_text
+            ]
+            if stable_samples:
+                return max(
+                    stable_samples,
+                    key=lambda sample: (
+                        sample.get("ocr_score", 0),
+                        sample.get("priority", 0),
+                    )
+                )
+
+        if readable_samples:
+            return max(
+                readable_samples,
+                key=lambda sample: (
+                    sample.get("ocr_score", 0),
+                    sample.get("priority", 0),
+                )
+            )
+
+        usable_samples = [
+            sample for sample in samples
+            if not sample.get("ocr_failed")
+        ]
+        if usable_samples:
+            return max(
+                usable_samples,
+                key=lambda sample: sample.get("priority", 0)
+            )
+
+        return max(samples, key=lambda sample: sample.get("priority", 0))
+
+    def _select_best_vehicle_sample(self, mem, best_plate):
+        samples = [
+            sample for sample in mem.get("best_vehicle_frames", [])
+            if sample.get("vehicle_img") is not None
+        ]
+        if not samples:
+            return {}
+
+        if best_plate:
+            plate_frame_idx = best_plate.get("frame_idx")
+            plate_vehicle_bbox = best_plate.get("vehicle_bbox")
+
+            matching_samples = [
+                sample for sample in samples
+                if (
+                    sample.get("frame_idx") == plate_frame_idx
+                    or sample.get("bbox") == plate_vehicle_bbox
+                )
+            ]
+            if matching_samples:
+                return max(
+                    matching_samples,
+                    key=lambda sample: sample.get("priority", 0)
+                )
+
+        return max(samples, key=lambda sample: sample.get("priority", 0))
+
     def _build_result_from_mem(self, mem):
         stable_text = (mem.get("best_text", "")
                        if mem.get("successful_reads", 0) > 0
                        else "")
+        best_plate = self._select_best_plate_sample(mem)
+        best_vehicle = self._select_best_vehicle_sample(mem, best_plate)
+        plate_bbox = mem.get("last_bbox_plate")
+
         return {
             "track_id": mem["track_id"],
             "vehicle_type": mem["vehicle_type"],
@@ -428,8 +490,14 @@ class TrackingManager:
             "vote_count": mem.get("best_count", 0),
             "best_score": mem.get("best_score", 0.0),
             "read_attempts": mem.get("read_attempts", 0),
+            "detection_attempts": mem.get("detection_attempts", 0),
             "successful_reads": mem.get("successful_reads", 0),
-            "bbox": mem.get("last_bbox"),
+            "bbox": plate_bbox,
+            "bbox_plate": plate_bbox,
+            "vehicle_bbox": mem.get("vehicle_bbox"),
+            "vehicle_confidence": mem.get("vehicle_confidence"),
+            "first_seen_frame": mem.get("first_seen_frame"),
+            "last_seen_frame": mem.get("last_seen_frame"),
             "first_seen": mem.get("first_seen_time"),
             "last_seen": mem.get("last_seen_time"),
             "plate_detected": mem.get("plate_detected", False),
@@ -437,7 +505,9 @@ class TrackingManager:
             "status": mem.get("plate_status", PlateStatus.NO_PLATE.value),
             "avg_confidence": mem.get("avg_confidence", 0.0),
             "avg_sharpness": mem.get("avg_sharpness", 0.0),
-            "finalized": mem.get("finalized", False)
+            "finalized": mem.get("finalized", False),
+            "best_vehicle_img": best_vehicle.get("vehicle_img"),
+            "best_plate_img": best_plate.get("plate_img"),
         }
 
     def export_all_results(self):

@@ -489,6 +489,8 @@ class MainPipeline:
                     )
                 mem = self.tracking_manager.memory[track_id]
                 mem["vehicle_type"] = vlabel
+                mem["vehicle_confidence"] = vconf
+                mem["vehicle_bbox"] = (vx1, vy1, vx2, vy2)
                 mem["last_seen_frame"] = self.frame_index
                 mem["last_seen_time"] = datetime.now().isoformat()
 
@@ -513,7 +515,7 @@ class MainPipeline:
                         bbox=(vx1c, vy1c, vx2c, vy2c),
                         sharpness=sharp,
                         priority=priority,
-                        vehicle_img=None,
+                        vehicle_img=vehicle_roi.copy(),
                         frame_ref=self.frame_index,
                         max_samples=6
                     )
@@ -549,9 +551,11 @@ class MainPipeline:
                             continue
 
                         frame_ref = sample.get("frame_ref", sample.get("frame_idx"))
-                        scene_frame = sample.get("vehicle_img")
-                        if scene_frame is None and frame_ref is not None:
-                            scene_frame = self.get_cached_frame(frame_ref)
+                        scene_frame = (
+                            self.get_cached_frame(frame_ref)
+                            if frame_ref is not None
+                            else None
+                        )
                         if scene_frame is None or scene_frame.size == 0:
                             sample["plate_checked"] = True
                             continue
@@ -677,6 +681,15 @@ class MainPipeline:
                         if after_successful_reads <= before_successful_reads:
                             best_sample["ocr_failed"] = True
                             continue
+
+                        best_sample["ocr_success"] = True
+                        best_sample["ocr_text"] = text
+                        best_sample["ocr_confidence"] = avg_conf
+                        best_sample["ocr_score"] = (
+                            best_sample["sharpness"]
+                            + avg_conf * 50.0
+                            + len(chars_for_text) * 2.0
+                        )
 
                         char_avg_sharp = self.filter_plate.avg_sharpness(chars_for_text, ignore_blur=False)
                         quality_score = best_sample["sharpness"] + char_avg_sharp * 0.3 + avg_conf * 50.0

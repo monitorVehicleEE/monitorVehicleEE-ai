@@ -19,3 +19,13 @@ dataset/
 # ===== output ====
 output
 
+# === train =====
+tools/
+train_detect_plate/
+train_motorbike/
+train_read_plate/
+train_vehicle/
+test_model.py
+test.py
+
+

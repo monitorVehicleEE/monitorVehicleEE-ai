@@ -1,8 +1,9 @@
 from threading import Thread, Lock
-from fastapi import FastAPI, HTTPException
+from fastapi import Body, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from fastapi import Request
+from fastapi.staticfiles import StaticFiles
 
 from src.main.MainPipeline import MainPipeline
 from src.main.CameraRunner import CameraRunner
@@ -30,6 +31,12 @@ VIDEO_BASE_DIR = os.getenv("VIDEO_BASE_DIR", "./dataset/vehicle/videos")
 # =========================================================
 
 app = FastAPI()
+os.makedirs("./dataset/output_test/events", exist_ok=True)
+app.mount(
+    "/event-images",
+    StaticFiles(directory="./dataset/output_test/events"),
+    name="event-images"
+)
 
 app.add_middleware(
     CORSMiddleware,
@@ -78,11 +85,74 @@ def wait_until_detect_started(runner, timeout=START_READY_TIMEOUT):
 # CAMERA SOURCE MAP
 # =========================================================
 
-CAMERA_SOURCES = {
+DEV_CAMERA_SOURCES = {
     "27": "./dataset/vehicle/videos/27.mp4",
     "entry_cam": "./dataset/vehicle/videos/27.mp4",
     "exit_cam": "./dataset/vehicle/videos/27.mp4",
 }
+
+
+def unwrap_camera_payload(payload):
+    if not isinstance(payload, dict):
+        return None
+
+    for key in ("data", "camera", "result"):
+        nested = payload.get(key)
+        if isinstance(nested, dict):
+            return nested
+
+    return payload
+
+
+def infer_source_type(source_path):
+    source = str(source_path or "").strip().lower()
+
+    if source.startswith("rtsp://"):
+        return "rtsp"
+
+    if source.startswith("http://"):
+        return "http"
+
+    if source.startswith("https://"):
+        return "https"
+
+    return "file"
+
+
+def normalize_camera_config(cam_id, payload):
+    camera = unwrap_camera_payload(payload)
+    if not camera:
+        return None
+
+    source_path = (
+        camera.get("source_path")
+        or camera.get("sourcePath")
+        or camera.get("source")
+        or camera.get("url")
+        or camera.get("video_url")
+        or camera.get("videoUrl")
+        or camera.get("stream_url")
+        or camera.get("streamUrl")
+        or camera.get("rtsp_url")
+        or camera.get("rtspUrl")
+        or camera.get("path")
+    )
+    source_type = (
+        camera.get("source_type")
+        or camera.get("sourceType")
+        or camera.get("type")
+        or infer_source_type(source_path)
+    )
+
+    normalized = dict(camera)
+    normalized["id"] = normalized.get("id") or cam_id
+    normalized["source_type"] = str(source_type or "").lower()
+    normalized["source_path"] = str(source_path or "").strip()
+
+    if "camera_role" not in normalized and "cameraRole" in normalized:
+        normalized["camera_role"] = normalized["cameraRole"]
+
+    return normalized
 
 
 def fetch_camera_config(cam_id):
@@ -90,7 +160,15 @@ def fetch_camera_config(cam_id):
 
     try:
         with urlopen(url, timeout=5) as response:
-            return json.loads(response.read().decode("utf-8"))
+            payload = json.loads(response.read().decode("utf-8"))
+            camera = normalize_camera_config(cam_id, payload)
+            if camera:
+                return camera
+
+            raise HTTPException(
+                status_code=502,
+                detail="backend camera api returned invalid camera payload"
+            )
     except HTTPError as exc:
         if exc.code == 404:
             raise HTTPException(
@@ -103,7 +181,7 @@ def fetch_camera_config(cam_id):
             detail=f"backend camera api error: {exc.code}"
         )
     except URLError as exc:
-        fallback_source = CAMERA_SOURCES.get(cam_id)
+        fallback_source = DEV_CAMERA_SOURCES.get(cam_id)
         if fallback_source:
             return {
                 "id": cam_id,
@@ -268,7 +346,7 @@ def stream(cam_id: str, request: Request):
 # =========================================================
     
 @app.post("/start-stream/{cam_id}")
-def start_stream(cam_id: str):
+def start_stream(cam_id: str, camera_payload: dict = Body(default=None)):
 
     with camera_lock:
 
@@ -287,7 +365,10 @@ def start_stream(cam_id: str):
                     "ready": ready
                 }
 
-        camera = fetch_camera_config(cam_id)
+        camera = normalize_camera_config(cam_id, camera_payload)
+        if camera is None:
+            camera = fetch_camera_config(cam_id)
+
         video_source = resolve_camera_source(camera)
 
         # tracker riêng cho từng camera
@@ -309,7 +390,9 @@ def start_stream(cam_id: str):
             save_dir="./dataset/output_test/",
             show=False,
             drop_late_frames=True,
-            max_frame_skip=1)
+            max_frame_skip=1,
+            camera_config=camera,
+            camera_api_url=CAMERA_API_URL)
 
         runner.on_finish = remove_camera
 

@@ -22,4 +22,4 @@
 # trtexec --onnx=model/pytorch/vehicle/best.onnx --saveEngine=best.engine --fp16
 
 # run server
-uvicorn src.app.app:app --reload --port 8001
+uvicorn src.app.app:app --reload --host 0.0.0.0 --port 8001
