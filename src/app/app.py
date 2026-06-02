@@ -81,17 +81,6 @@ def wait_until_detect_started(runner, timeout=START_READY_TIMEOUT):
 
     return runner.running and runner.detect_started
 
-# =========================================================
-# CAMERA SOURCE MAP
-# =========================================================
-
-DEV_CAMERA_SOURCES = {
-    "27": "./dataset/vehicle/videos/27.mp4",
-    "entry_cam": "./dataset/vehicle/videos/27.mp4",
-    "exit_cam": "./dataset/vehicle/videos/27.mp4",
-}
-
-
 def unwrap_camera_payload(payload):
     if not isinstance(payload, dict):
         return None
@@ -181,14 +170,6 @@ def fetch_camera_config(cam_id):
             detail=f"backend camera api error: {exc.code}"
         )
     except URLError as exc:
-        fallback_source = DEV_CAMERA_SOURCES.get(cam_id)
-        if fallback_source:
-            return {
-                "id": cam_id,
-                "source_type": "file",
-                "source_path": fallback_source,
-            }
-
         raise HTTPException(
             status_code=502,
             detail=f"cannot connect to backend camera api: {exc.reason}"
@@ -346,7 +327,12 @@ def stream(cam_id: str, request: Request):
 # =========================================================
     
 @app.post("/start-stream/{cam_id}")
-def start_stream(cam_id: str, camera_payload: dict = Body(default=None)):
+@app.post("/start-stream/{cam_id}/{send_event}")
+def start_stream(
+    cam_id: str,
+    send_event: bool = True,
+    camera_payload: dict = Body(default=None)
+):
 
     with camera_lock:
 
@@ -356,13 +342,16 @@ def start_stream(cam_id: str, camera_payload: dict = Body(default=None)):
             runner = camera_runners[cam_id]
 
             if runner.running:
+                if send_event:
+                    runner.send_vehicle_events = True
 
                 ready = wait_until_detect_started(runner)
 
                 return {
                     "status": "already_running" if ready else "starting",
                     "cam_id": cam_id,
-                    "ready": ready
+                    "ready": ready,
+                    "send_vehicle_events": runner.send_vehicle_events
                 }
 
         camera = normalize_camera_config(cam_id, camera_payload)
@@ -392,7 +381,8 @@ def start_stream(cam_id: str, camera_payload: dict = Body(default=None)):
             drop_late_frames=True,
             max_frame_skip=1,
             camera_config=camera,
-            camera_api_url=CAMERA_API_URL)
+            camera_api_url=CAMERA_API_URL,
+            send_vehicle_events=send_event)
 
         runner.on_finish = remove_camera
 
@@ -416,7 +406,8 @@ def start_stream(cam_id: str, camera_payload: dict = Body(default=None)):
             "status": "started" if ready else "starting",
             "cam_id": cam_id,
             "source": video_source,
-            "ready": ready
+            "ready": ready,
+            "send_vehicle_events": runner.send_vehicle_events
         }
 
 # =========================================================
@@ -424,7 +415,8 @@ def start_stream(cam_id: str, camera_payload: dict = Body(default=None)):
 # =========================================================
 
 @app.post("/stop-stream/{cam_id}")
-def stop_stream(cam_id: str):
+@app.post("/stop-stream/{cam_id}/{send_event}")
+def stop_stream(cam_id: str, send_event: bool = True):
 
     with camera_lock:
 
@@ -434,6 +426,14 @@ def stop_stream(cam_id: str):
 
             return {
                 "error": "camera not found"
+            }
+
+        if not send_event and runner.send_vehicle_events:
+            return {
+                "status": "event_stream_running",
+                "cam_id": cam_id,
+                "stopped": False,
+                "send_vehicle_events": runner.send_vehicle_events
             }
 
         runner.stop()
@@ -461,11 +461,13 @@ def camera_status(cam_id: str):
     if runner is None:
 
         return {
-            "running": False
+            "running": False,
+            "send_vehicle_events": False
         }
 
     return {
-        "running": runner.running and runner.detect_started
+        "running": runner.running and runner.detect_started,
+        "send_vehicle_events": runner.send_vehicle_events
     }
 
 # =========================================================

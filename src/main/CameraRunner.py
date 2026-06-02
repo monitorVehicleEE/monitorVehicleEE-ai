@@ -37,7 +37,8 @@ class CameraRunner:
     def __init__(self, cam_id, video_source, pipeline,
                  save_dir="./output", show=False,
                  drop_late_frames=False, max_frame_skip=3,
-                 camera_config=None, camera_api_url=None):
+                 camera_config=None, camera_api_url=None,
+                 send_vehicle_events=None):
         self.cam_id = cam_id
         self.video_source = video_source
         self.pipeline = pipeline
@@ -52,10 +53,13 @@ class CameraRunner:
             .rstrip("/")
             + "/event-images"
         )
-        self.send_vehicle_events = (
-            os.getenv("SEND_VEHICLE_EVENTS", "true").lower()
-            in ("1", "true", "yes", "on")
-        )
+        if send_vehicle_events is None:
+            self.send_vehicle_events = (
+                os.getenv("SEND_VEHICLE_EVENTS", "true").lower()
+                in ("1", "true", "yes", "on")
+            )
+        else:
+            self.send_vehicle_events = bool(send_vehicle_events)
 
         self.cap = None
         self.writer = None
