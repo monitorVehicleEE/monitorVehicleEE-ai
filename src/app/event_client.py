@@ -1,6 +1,5 @@
 import json
 import os
-import re
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
@@ -14,7 +13,7 @@ def normalize_plate(plate):
     if not plate:
         return None
 
-    normalized = re.sub(r"[^A-Z0-9]", "", str(plate).upper())
+    normalized = str(plate).strip().upper()
     return normalized or None
 
 
@@ -46,17 +45,9 @@ def normalize_bbox(bbox):
 def normalize_vehicle_type_id(vehicle_type):
     mapping = {
         "motorbike": 1,
-        "motorcycle": 1,
-        "xm": 1,
         "oto": 2,
-        "car": 2,
-        "o-to": 2,
         "xe-tai": 3,
-        "truck": 3,
-        "xt": 3,
         "xe-container": 4,
-        "container": 4,
-        "xctn": 4,
     }
 
     key = str(vehicle_type or "unknown").strip().lower()
@@ -69,9 +60,9 @@ def build_vehicle_event_payload(camera, result):
     vehicle_confidence = result.get("vehicle_confidence")
 
     status = (
-        "AUTO_APPROVED"
+        1
         if plate and plate_confidence >= AUTO_APPROVE_PLATE_CONFIDENCE
-        else "PENDING"
+        else 0
     )
 
     vehicle_bbox = normalize_bbox(result.get("vehicle_bbox"))

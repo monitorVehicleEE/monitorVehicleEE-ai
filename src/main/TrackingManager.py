@@ -9,7 +9,7 @@ class TrackingManager:
                  expire_frames=60, min_confidence=0.6,
                  no_plate_ratio=0.9, min_sample_frames=10, blur_ratio=0.7):
         """
-        expire_frames : int (default=60)
+        expire_frames : 
             Số frame tối đa một track có thể mất dấu trước khi bị xóa
             60 frames ≈ 2-3 giây @ 25fps
         """
@@ -48,6 +48,7 @@ class TrackingManager:
             # Timestamp
             "first_seen_time": datetime.now().isoformat(),
             "last_seen_time": datetime.now().isoformat(),
+            "missing_frames": 0,
 
             # Statistics
             "successful_reads": 0,
@@ -375,16 +376,21 @@ class TrackingManager:
     # ====== LIFECYCLE ======
     def remove_expired_tracks(self, current_frame):
         remove_ids = []
+        finalized_results = []
         for track_id, mem in self.memory.items():
             last_seen = mem["last_seen_frame"]
             if current_frame - last_seen > self.expire_frames:
                 if not mem.get("finalized", False):
+                    result = self._build_result_from_mem(mem)
+                    if result:
+                        finalized_results.append(result)
                     self.finalize_track(track_id)
                 remove_ids.append(track_id)
 
         for tid in remove_ids:
             del self.memory[tid]
 
+        return finalized_results
 
     def finalize_track(self, track_id):
         if track_id not in self.memory:

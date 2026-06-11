@@ -3,7 +3,17 @@ import json
 import os
 import numpy as np
 import time
+from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
+from src.config.settings import (
+    ACTIVE_EVENT_NO_PLATE_MIN_FRAMES,
+    ACTIVE_EVENT_PLATE_CONFIDENCE,
+    ACTIVE_EVENT_SEND_INTERVAL_FRAMES,
+    AI_PUBLIC_URL,
+    DROP_LATE_FRAMES,
+    EVENT_POST_QUEUE_LIMIT,
+    MAX_FRAME_SKIP,
+)
 
 
 def resize_keep_ratio(frame, target_height=720):
@@ -36,7 +46,7 @@ def to_jsonable(value):
 class CameraRunner:
     def __init__(self, cam_id, video_source, pipeline,
                  save_dir="./output", show=False,
-                 drop_late_frames=False, max_frame_skip=3,
+                 drop_late_frames=DROP_LATE_FRAMES, max_frame_skip=MAX_FRAME_SKIP,
                  camera_config=None, camera_api_url=None,
                  send_vehicle_events=None):
         self.cam_id = cam_id
@@ -49,7 +59,7 @@ class CameraRunner:
         self.camera_config = camera_config or {"id": cam_id}
         self.camera_api_url = camera_api_url
         self.event_image_base_url = (
-            os.getenv("AI_PUBLIC_URL", "http://localhost:8001")
+            os.getenv("AI_PUBLIC_URL", AI_PUBLIC_URL) # 10.60.229.211
             .rstrip("/")
             + "/event-images"
         )
@@ -80,16 +90,25 @@ class CameraRunner:
         self.event_executor = ThreadPoolExecutor(max_workers=1)
         self.event_futures = []
         self.event_post_queue_limit = int(
-            os.getenv("EVENT_POST_QUEUE_LIMIT", "50")
+            os.getenv("EVENT_POST_QUEUE_LIMIT", str(EVENT_POST_QUEUE_LIMIT))
         )
         self.active_send_interval_frames = int(
-            os.getenv("ACTIVE_EVENT_SEND_INTERVAL_FRAMES", "30")
+            os.getenv(
+                "ACTIVE_EVENT_SEND_INTERVAL_FRAMES",
+                str(ACTIVE_EVENT_SEND_INTERVAL_FRAMES)
+            )
         )
         self.good_plate_confidence = float(
-            os.getenv("ACTIVE_EVENT_PLATE_CONFIDENCE", "0.75")
+            os.getenv(
+                "ACTIVE_EVENT_PLATE_CONFIDENCE",
+                str(ACTIVE_EVENT_PLATE_CONFIDENCE)
+            )
         )
         self.no_plate_min_frames = int(
-            os.getenv("ACTIVE_EVENT_NO_PLATE_MIN_FRAMES", "90")
+            os.getenv(
+                "ACTIVE_EVENT_NO_PLATE_MIN_FRAMES",
+                str(ACTIVE_EVENT_NO_PLATE_MIN_FRAMES)
+            )
         )
 
         self.finalized = False
@@ -133,7 +152,7 @@ class CameraRunner:
 
         has_good_plate = (
             bool(plate_text)
-            and successful_reads >= 1
+            and successful_reads >= 2
             and plate_confidence >= self.good_plate_confidence
         )
         if has_good_plate:
@@ -145,18 +164,35 @@ class CameraRunner:
         status = result.get("status")
         is_finished = bool(result.get("finalized"))
 
+        has_enough_plate_attempts = (
+            read_attempts >= 2
+            or detection_attempts >= 2
+            or status in ("no_plate", "unreadable", "low_confidence")
+        )
+        has_low_confidence_plate = (
+            bool(plate_text)
+            and successful_reads >= 1
+            and age_frames >= self.no_plate_min_frames
+        )
         has_waited_for_plate = (
-            age_frames >= self.no_plate_min_frames
-            and not plate_text
+            not plate_text
             and (
-                read_attempts >= 2
-                or detection_attempts >= 2
-                or status in ("no_plate", "unreadable", "low_confidence")
-                or is_finished
+                (
+                    age_frames >= self.no_plate_min_frames
+                    and has_enough_plate_attempts
+                )
+                or (
+                    is_finished
+                    and (
+                        read_attempts >= 1
+                        or detection_attempts >= 1
+                        or status in ("no_plate", "unreadable", "low_confidence")
+                    )
+                )
             )
         )
 
-        return has_waited_for_plate
+        return has_low_confidence_plate or has_waited_for_plate
 
     def save_event_images(self, result):
         track_id = result.get("track_id")
@@ -168,10 +204,12 @@ class CameraRunner:
 
         image_path = None
         plate_image_path = None
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+        file_prefix = f"track_{track_id}_{timestamp}"
 
         vehicle_img = result.get("best_vehicle_img")
         if vehicle_img is not None and vehicle_img.size > 0:
-            image_filename = f"track_{track_id}_vehicle.jpg"
+            image_filename = f"{file_prefix}_vehicle.jpg"
             image_file_path = os.path.join(image_dir, image_filename)
             cv2.imwrite(image_file_path, vehicle_img)
             image_path = (
@@ -180,7 +218,7 @@ class CameraRunner:
 
         plate_img = result.get("best_plate_img")
         if plate_img is not None and plate_img.size > 0:
-            plate_filename = f"track_{track_id}_plate.jpg"
+            plate_filename = f"{file_prefix}_plate.jpg"
             plate_file_path = os.path.join(image_dir, plate_filename)
             cv2.imwrite(plate_file_path, plate_img)
             plate_image_path = (
@@ -378,17 +416,24 @@ class CameraRunner:
                 self.pipeline.frame_index = self.frame_idx
 
                 out_frame, results = self.pipeline.process_frame_with_tracked_vehicles(frame)
+                self.send_results_to_server(results, eligible_only=True)
 
                 self.latest_frame = out_frame
                 self.latest_frame_idx = self.frame_idx
                 self.detect_started = True
 
                 # Dọn track cũ theo chu kỳ (nếu cần)
-                if self.frame_idx > 0 and self.frame_idx % 30 == 0:
+                if (
+                    self.frame_idx > 0
+                    and self.active_send_interval_frames > 0
+                    and self.frame_idx % self.active_send_interval_frames == 0
+                ):
                     self.pipeline.tracking_manager.remove_expired_tracks(
                         self.frame_idx
                     )
-                    self.send_active_results_to_server()
+                    # self.send_active_results_to_server()
+
+                self.send_active_results_to_server()
 
                 if self.writer is not None:
                     try:

@@ -11,6 +11,23 @@ from src.main.VehicleTracker import VehicleTracker
 from src.main.PlateDetector import PlateDetector
 from src.main.PlateChar import PlateChar
 from src.main.VehicleDetector import VehicleDetector
+from src.config.settings import (
+    CAMERA_API_URL as DEFAULT_CAMERA_API_URL,
+    DEVICE,
+    DROP_LATE_FRAMES,
+    EVENT_IMAGES_DIR,
+    JPEG_QUALITY,
+    MAX_FRAME_SKIP,
+    OCR_MODEL_PATH,
+    OUTPUT_DIR,
+    PLATE_MODEL_PATH,
+    SHOW_WINDOW,
+    START_READY_TIMEOUT,
+    STREAM_TIMING_LOG,
+    STREAM_WIDTH,
+    VEHICLE_MODEL_PATH,
+    VIDEO_BASE_DIR as DEFAULT_VIDEO_BASE_DIR,
+)
 
 
 import cv2
@@ -20,21 +37,19 @@ import time
 from urllib.error import HTTPError, URLError
 from urllib.request import urlopen
 
-STREAM_TIMING_LOG = False
-STREAM_JPEG_QUALITY = 75
-START_READY_TIMEOUT = 60.0
-CAMERA_API_URL = os.getenv("CAMERA_API_URL", "http://localhost:8000")
-VIDEO_BASE_DIR = os.getenv("VIDEO_BASE_DIR", "./dataset/vehicle/videos")
+STREAM_JPEG_QUALITY = JPEG_QUALITY
+CAMERA_API_URL = os.getenv("CAMERA_API_URL", DEFAULT_CAMERA_API_URL) # 10.60.229.211
+VIDEO_BASE_DIR = os.getenv("VIDEO_BASE_DIR", DEFAULT_VIDEO_BASE_DIR)
 
 # =========================================================
 # FASTAPI
 # =========================================================
 
 app = FastAPI()
-os.makedirs("./dataset/output_test/events", exist_ok=True)
+os.makedirs(EVENT_IMAGES_DIR, exist_ok=True)
 app.mount(
     "/event-images",
-    StaticFiles(directory="./dataset/output_test/events"),
+    StaticFiles(directory=EVENT_IMAGES_DIR),
     name="event-images"
 )
 
@@ -56,11 +71,11 @@ camera_lock = Lock()
 # LOAD YOLO MODEL 1 LẦN
 # =========================================================
 
-detector_vehicle = VehicleDetector("./model/pytorch/vehicle/best.pt", device=0)
+detector_vehicle = VehicleDetector(VEHICLE_MODEL_PATH, device=DEVICE)
 
-detector_plate = PlateDetector("./model/pytorch/plate/best.pt", device=0)
+detector_plate = PlateDetector(PLATE_MODEL_PATH, device=DEVICE)
 
-detector_char = PlateChar("./model/pytorch/char/best.pt", device=0)
+detector_char = PlateChar(OCR_MODEL_PATH, device=DEVICE)
 
 # =========================================================
 # CAMERA STORE
@@ -239,7 +254,7 @@ def resize_keep_ratio(frame, target_width):
 
     return cv2.resize(frame, (new_w, new_h))
 
-def generate_frames(runner, width=640):
+def generate_frames(runner, width=STREAM_WIDTH):
 
     try:
         while runner.running:
@@ -258,7 +273,7 @@ def generate_frames(runner, width=640):
             if width is not None:
                 t0 = time.perf_counter()
 
-            frame = resize_keep_ratio(frame, width)
+            frame = resize_keep_ratio(frame, width or STREAM_WIDTH)
 
             resize_time = time.perf_counter() - t0
 
@@ -308,9 +323,9 @@ def generate_frames(runner, width=640):
 def stream(cam_id: str, request: Request):
 
     try:
-        width = int(request.query_params.get("w", 640))
+        width = int(request.query_params.get("w", STREAM_WIDTH))
     except:
-        width = 640
+        width = STREAM_WIDTH
 
     runner = camera_runners.get(cam_id)
 
@@ -376,10 +391,10 @@ def start_stream(
             cam_id=cam_id,
             video_source=video_source,
             pipeline=pipeline,
-            save_dir="./dataset/output_test/",
-            show=False,
-            drop_late_frames=True,
-            max_frame_skip=1,
+            save_dir=OUTPUT_DIR,
+            show=SHOW_WINDOW,
+            drop_late_frames=DROP_LATE_FRAMES,
+            max_frame_skip=MAX_FRAME_SKIP,
             camera_config=camera,
             camera_api_url=CAMERA_API_URL,
             send_vehicle_events=send_event)

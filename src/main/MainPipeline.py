@@ -3,6 +3,23 @@ import numpy as np
 from src.main.PlateWarper import PlateWarper
 from src.main.Filter_Plate import Filter_Plate
 from src.main.TrackingManager import TrackingManager
+from src.config.settings import (
+    CHAR_SHARPNESS_THRESHOLD,
+    MAX_CACHED_FRAMES,
+    MAX_OCR_READS,
+    MAX_PLATE_FRAME_CHECKS,
+    MAX_PLATE_SAMPLE_RETRIES,
+    OCR_STEP,
+    PLATE_SHARPNESS_THRESHOLD,
+    PLATE_STEP,
+    TRACK_EXPIRE_FRAMES,
+    TRACK_LOST_APPEND_FRAMES,
+    TRACK_MAX_HISTORY,
+    TRACK_MIN_LENGTH,
+    TRACK_MIN_VOTES,
+    VEHICLE_SAMPLE_STEP,
+    VEHICLE_STEP,
+)
 import math
 import json
 from datetime import datetime
@@ -21,9 +38,20 @@ class MainPipeline:
         self.plate_detector = plate_detector
         self.char_detector = char_detector
         self.frame_index = 0
-        self.tracking_manager = TrackingManager( min_length=7, min_votes=3, max_history=20, expire_frames=120 )
-        self.warper = PlateWarper(sharpness_threshold=150.0, sharpness_method='laplacian')
-        self.filter_plate = Filter_Plate(method="laplacian",char_threshold=80.0,plate_threshold=150.0
+        self.tracking_manager = TrackingManager(
+            min_length=TRACK_MIN_LENGTH,
+            min_votes=TRACK_MIN_VOTES,
+            max_history=TRACK_MAX_HISTORY,
+            expire_frames=TRACK_EXPIRE_FRAMES
+        )
+        self.warper = PlateWarper(
+            sharpness_threshold=PLATE_SHARPNESS_THRESHOLD,
+            sharpness_method='laplacian'
+        )
+        self.filter_plate = Filter_Plate(
+            method="laplacian",
+            char_threshold=CHAR_SHARPNESS_THRESHOLD,
+            plate_threshold=PLATE_SHARPNESS_THRESHOLD
         )
         self.prev_plate_points = []
         self.smooth_alpha = 0.7
@@ -51,14 +79,14 @@ class MainPipeline:
             "motorbike"   : (0, 255, 0),# xanh lá
         }
         self.default_vehicle_color = (255, 255, 255)
-        self.vehicle_step = 2
-        self.plate_step   = 6
-        self.orc_step     = 8
-        self.vehicle_sample_step = 3
-        self.max_plate_frame_checks_per_cycle = 2
-        self.max_ocr_reads_per_cycle = 3
-        self.max_cached_frames = 30
-        self.max_plate_sample_retries = 2
+        self.vehicle_step = VEHICLE_STEP
+        self.plate_step   = PLATE_STEP
+        self.orc_step     = OCR_STEP
+        self.vehicle_sample_step = VEHICLE_SAMPLE_STEP
+        self.max_plate_frame_checks_per_cycle = MAX_PLATE_FRAME_CHECKS
+        self.max_ocr_reads_per_cycle = MAX_OCR_READS
+        self.max_cached_frames = MAX_CACHED_FRAMES
+        self.max_plate_sample_retries = MAX_PLATE_SAMPLE_RETRIES
 
         self.last_detections = []
         self.last_vehicles = []
@@ -476,6 +504,20 @@ class MainPipeline:
             else:
                 vehicles = self.last_vehicles
 
+            active_track_ids = {
+                track_id
+                for (
+                    track_id,
+                    _vx1,
+                    _vy1,
+                    _vx2,
+                    _vy2,
+                    _vconf,
+                    _vlabel
+                ) in vehicles
+            }
+            lost_track_results = []
+
             draw_list = [(track_id, vx1, vy1, vx2, vy2, vconf, vlabel) for (track_id, vx1, vy1, vx2, vy2, vconf, vlabel) in vehicles]
             self.draw_vehicles(frame, draw_list)
 
@@ -493,6 +535,7 @@ class MainPipeline:
                 mem["vehicle_bbox"] = (vx1, vy1, vx2, vy2)
                 mem["last_seen_frame"] = self.frame_index
                 mem["last_seen_time"] = datetime.now().isoformat()
+                mem["missing_frames"] = 0
 
                 if should_sample_vehicle_frame:
                     vx1c, vy1c = max(0, vx1), max(0, vy1)
@@ -735,13 +778,33 @@ class MainPipeline:
                     print(f"[DRAW] {draw_time*1000:.1f} ms")
 
             # # 5. Dọn dẹp và kết xuất kết quả danh sách tracking
-            self.tracking_manager.remove_expired_tracks(self.frame_index)
+            for track_id in list(self.tracking_manager.memory.keys()):
+                if track_id in active_track_ids:
+                    continue
+
+                mem = self.tracking_manager.memory[track_id]
+                mem["missing_frames"] = mem.get("missing_frames", 0) + 1
+
+                if mem["missing_frames"] < TRACK_LOST_APPEND_FRAMES:
+                    continue
+
+                track_result = self.tracking_manager.get_track_result(track_id)
+                if track_result:
+                    track_result["finalized"] = True
+                    lost_track_results.append(track_result)
+
+                self.tracking_manager.finalize_track(track_id)
+                self.tracking_manager.memory.pop(track_id, None)
+
+            expired_track_results = self.tracking_manager.remove_expired_tracks(self.frame_index)
             self.prune_frame_caches()
             results = []
             for (track_id, vx1, vy1, vx2, vy2, vconf, vlabel) in vehicles:
                 track_result = self.tracking_manager.get_track_result(track_id)
                 if track_result:
                     results.append(track_result)
+            results.extend(lost_track_results)
+            results.extend(expired_track_results)
 
             # 6. In danh sách tổng hợp góc trên bên trái màn hình
             y_offset = 100

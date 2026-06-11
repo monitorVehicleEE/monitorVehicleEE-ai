@@ -1,15 +1,23 @@
 from ultralytics import YOLO
+from src.config.settings import DEVICE, OCR_CONF_THRESHOLD, OCR_IMG_SIZE
 
 class PlateChar:
-    def __init__(self, model_path, device=0, imgsz=320):
+    def __init__(
+        self,
+        model_path,
+        device=DEVICE,
+        conf=OCR_CONF_THRESHOLD,
+        imgsz=OCR_IMG_SIZE
+    ):
         self.model = YOLO(model_path)
         self.device = device
+        self.conf = conf
         self.imgsz = imgsz
 
     def detect(self, frame):
         results = self.model(
             frame,
-            conf=0.3,
+            conf=self.conf,
             imgsz=self.imgsz,
             device=self.device,
             verbose=False

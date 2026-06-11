@@ -1,7 +1,14 @@
 from ultralytics import YOLO
+from src.config.settings import DEVICE, PLATE_CONF_THRESHOLD, PLATE_IMG_SIZE
 
 class PlateDetector:
-    def __init__(self, model_path, device=0, conf=0.25, imgsz=640):
+    def __init__(
+        self,
+        model_path,
+        device=DEVICE,
+        conf=PLATE_CONF_THRESHOLD,
+        imgsz=PLATE_IMG_SIZE
+    ):
         self.model = YOLO(model_path)
         self.device = device
         self.conf = conf
