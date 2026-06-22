@@ -1,10 +1,10 @@
 import cv2
-from MainPipeline import MainPipeline, run_on_image
-from CameraRunner import CameraRunner
-from VehicleTracker import VehicleTracker
-from PlateDetector import PlateDetector
-from PlateChar import PlateChar
-from VehicleDetector import VehicleDetector
+from src.main.MainPipeline import MainPipeline
+from src.main.CameraRunner import CameraRunner
+from src.main.VehicleTracker import VehicleTracker
+from src.main.PlateDetector import PlateDetector
+from src.main.PlateChar import PlateChar
+from src.main.VehicleDetector import VehicleDetector
 
 # 1. Khởi tạo model
 video_path = "./dataset/vehicle/videos/27.mp4"

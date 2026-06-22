@@ -1,4 +1,6 @@
 from ultralytics import YOLO
+import numpy as np
+
 from src.config.settings import DEVICE, OCR_CONF_THRESHOLD, OCR_IMG_SIZE
 
 class PlateChar:
@@ -41,3 +43,8 @@ class PlateChar:
         # text = "".join([c[1] for c in chars])
         # return text
         return chars
+
+    def warmup(self, imgsz=None):
+        size = int(imgsz or self.imgsz or OCR_IMG_SIZE)
+        dummy = np.zeros((size, size, 3), dtype=np.uint8)
+        self.detect(dummy)

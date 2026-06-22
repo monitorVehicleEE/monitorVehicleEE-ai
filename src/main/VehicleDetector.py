@@ -1,4 +1,6 @@
 from ultralytics import YOLO
+import numpy as np
+
 from src.config.settings import DEVICE, VEHICLE_CONF_THRESHOLD
 
 class VehicleDetector:
@@ -25,3 +27,7 @@ class VehicleDetector:
             # print(vehicles)
 
         return vehicles
+
+    def warmup(self, imgsz=640):
+        dummy = np.zeros((imgsz, imgsz, 3), dtype=np.uint8)
+        self.detect(dummy)

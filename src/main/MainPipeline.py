@@ -662,7 +662,7 @@ class MainPipeline:
             # 3. Chạy nhận diện ký tự (OCR) theo chu kỳ orc_step
             if self.frame_index % self.orc_step == 0:
                 for (track_id, vx1, vy1, vx2, vy2, vconf, vlabel) in vehicles:
-                    best_samples = self.tracking_manager.get_best_plate_samples(track_id, top_k=8)
+                    best_samples = self.tracking_manager.get_best_plate_samples(track_id, top_k=3)
                     if not best_samples:
                         continue
                     for best_sample in best_samples:

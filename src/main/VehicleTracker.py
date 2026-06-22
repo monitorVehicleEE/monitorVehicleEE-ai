@@ -44,7 +44,7 @@ class VehicleTracker:
         for box, tid, conf, cls_id in zip(tracked.xyxy, tracked.tracker_id, tracked.confidence, tracked.class_id):
             x1, y1, x2, y2 = map(int, box)
             # smooth
-            x1, y1, x2, y2 = self.smooth_box(tid,[x1, y1, x2, y2])
+            # x1, y1, x2, y2 = self.smooth_box(tid,[x1, y1, x2, y2])
             label = self.class_names.get(int(cls_id), "vehicle")
             vehicles.append((int(tid), x1, y1, x2, y2, float(conf),label))
 

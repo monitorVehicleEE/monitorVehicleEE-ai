@@ -1,4 +1,6 @@
 from ultralytics import YOLO
+import numpy as np
+
 from src.config.settings import DEVICE, PLATE_CONF_THRESHOLD, PLATE_IMG_SIZE
 
 class PlateDetector:
@@ -42,3 +44,8 @@ class PlateDetector:
                 "points": pts
             })
         return plates
+
+    def warmup(self, imgsz=None):
+        size = int(imgsz or self.imgsz or PLATE_IMG_SIZE)
+        dummy = np.zeros((size, size, 3), dtype=np.uint8)
+        self.detect(dummy)

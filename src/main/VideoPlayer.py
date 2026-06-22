@@ -312,7 +312,7 @@ class VideoPlayer:
 if __name__ == "__main__":
 
     video_path = (
-        r"./dataset/output_test/27_tracked_2.mp4"
+        r"./dataset/output_test/27_test.mp4"
     )
 
     player = VideoPlayer(video_path)

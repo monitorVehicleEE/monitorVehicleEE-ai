@@ -26,7 +26,7 @@ VIDEO_BASE_DIR = "./dataset/vehicle/videos"
 # DETECTION STEP
 # =========================================================
 
-VEHICLE_STEP = 2
+VEHICLE_STEP = 1
 PLATE_STEP = 6
 OCR_STEP = 8
 VEHICLE_SAMPLE_STEP = 3
@@ -61,11 +61,11 @@ TRACK_LOST_APPEND_FRAMES = 3
 # MODEL PATH
 # =========================================================
 
-VEHICLE_MODEL_PATH = "./runs/detect/runs_vehicle/yolo11s_vehicle_v2/weights/best.pt"
+VEHICLE_MODEL_PATH = "./model/pytorch/vehicle/best.pt"
 
-PLATE_MODEL_PATH = "./runs/pose/runs_detect_plate/yl11s_dp_ver6/weights/best.pt"
+PLATE_MODEL_PATH = "./model/pytorch/plate/best.pt"
 
-OCR_MODEL_PATH = "./runs/detect/runs_read_plate/yolo11s_read_plate_v6/weights/best.pt"
+OCR_MODEL_PATH = "./model/pytorch/char/best.pt"
 
 # =========================================================
 # YOLO

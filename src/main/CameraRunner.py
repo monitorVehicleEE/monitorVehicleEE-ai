@@ -251,13 +251,13 @@ class CameraRunner:
             response = post_vehicle_event(self.camera_api_url, payload)
             if response is not None:
                 self.sent_event_track_ids.add(track_id)
-                print(
-                    "[BE EVENT SENT]",
-                    f"camera={self.cam_id}",
-                    f"track={track_id}",
-                    f"plate={payload.get('plate')}",
-                    f"status={payload.get('status')}",
-                )
+                # print(
+                #     "[BE EVENT SENT]",
+                #     f"camera={self.cam_id}",
+                #     f"track={track_id}",
+                #     f"plate={payload.get('plate')}",
+                #     f"status={payload.get('status')}",
+                # )
             else:
                 print(
                     "[BE EVENT FAILED]",

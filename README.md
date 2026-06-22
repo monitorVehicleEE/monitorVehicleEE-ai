@@ -21,5 +21,12 @@
 # càu tensortRT: pip install tensorrt || pip install tensorrt==10.11.0.33
 # trtexec --onnx=model/pytorch/vehicle/best.onnx --saveEngine=best.engine --fp16
 
-# run server
+# run sequential server
 uvicorn src.app.app:app --reload --host 0.0.0.0 --port 8001
+
+# run thread server
+uvicorn src.app.main:app --reload --host 0.0.0.0 --port 8001
+
+python src/pipeline/run_video.py .\dataset\vehicle\videos\27.mp4 --show --save-video --save-event-images
+
+python src/pipeline/run_video.py .\dataset\vehicle\videos\27.mp4 --show --save-event-images

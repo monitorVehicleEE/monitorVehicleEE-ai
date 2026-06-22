@@ -29,6 +29,8 @@ class TrackingManager:
         self.memory[track_id] = {
             "track_id": track_id,
             "vehicle_type": vehicle_type,
+            "vehicle_type_votes": {},
+            "vehicle_type_scores": {},
 
             # Trạng thái
             "has_plate": False,
@@ -89,6 +91,28 @@ class TrackingManager:
             "vehicle_bbox": None, 
             "last_plate_view": None,
         }
+
+    def update_vehicle_type(self, track_id, vehicle_type, confidence=0.0):
+        if track_id not in self.memory:
+            self.init_track(track_id, vehicle_type=vehicle_type)
+
+        mem = self.memory[track_id]
+        label = vehicle_type or "unknown"
+        votes = mem.setdefault("vehicle_type_votes", {})
+        scores = mem.setdefault("vehicle_type_scores", {})
+
+        votes[label] = votes.get(label, 0) + 1
+        scores[label] = scores.get(label, 0.0) + float(confidence or 0.0)
+
+        best_label = max(
+            votes,
+            key=lambda item: (votes[item], scores.get(item, 0.0)),
+        )
+        mem["vehicle_type"] = best_label
+        mem["vehicle_confidence"] = (
+            scores.get(best_label, 0.0) / max(1, votes.get(best_label, 0))
+        )
+        return best_label
 
     # # ====== ADAPTIVE ANPR SUPPORT ======
     def can_run_anpr(self, track_id, frame_index):
@@ -487,11 +511,13 @@ class TrackingManager:
                        else "")
         best_plate = self._select_best_plate_sample(mem)
         best_vehicle = self._select_best_vehicle_sample(mem, best_plate)
-        plate_bbox = mem.get("last_bbox_plate")
+        plate_bbox = best_plate.get("bbox") or mem.get("last_bbox_plate")
+        vehicle_bbox = best_vehicle.get("bbox") or mem.get("vehicle_bbox")
 
         return {
             "track_id": mem["track_id"],
             "vehicle_type": mem["vehicle_type"],
+            "vehicle_type_votes": dict(mem.get("vehicle_type_votes", {})),
             "plate_text": stable_text,
             "vote_count": mem.get("best_count", 0),
             "best_score": mem.get("best_score", 0.0),
@@ -500,7 +526,10 @@ class TrackingManager:
             "successful_reads": mem.get("successful_reads", 0),
             "bbox": plate_bbox,
             "bbox_plate": plate_bbox,
-            "vehicle_bbox": mem.get("vehicle_bbox"),
+            "vehicle_bbox": vehicle_bbox,
+            "last_vehicle_bbox": mem.get("vehicle_bbox"),
+            "best_vehicle_frame": best_vehicle.get("frame_idx"),
+            "best_plate_frame": best_plate.get("frame_idx"),
             "vehicle_confidence": mem.get("vehicle_confidence"),
             "first_seen_frame": mem.get("first_seen_frame"),
             "last_seen_frame": mem.get("last_seen_frame"),
