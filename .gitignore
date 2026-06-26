@@ -31,5 +31,3 @@ train_vehicle/
 test_model.py
 test.py
 
-
-*.pt 
