@@ -11,6 +11,10 @@ __pycache__/
 
 # ===== YOLO =====
 runs/
+yolo11n.pt
+yolo11s-pose.pt
+yolo11s.pt
+yolo26n.pt
 
 # ===== DATA =====
 dataset/
@@ -28,3 +32,4 @@ test_model.py
 test.py
 
 
+*.pt 
