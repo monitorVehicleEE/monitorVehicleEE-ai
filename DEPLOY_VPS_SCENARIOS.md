@@ -270,7 +270,64 @@ Node.js 22.12+ only if you need local frontend build
 Git
 PostgreSQL 16
 Caddy for Windows
+NSSM
 ```
+
+Open PowerShell as Administrator.
+
+Install common tools with `winget`:
+
+```powershell
+winget install -e --id Git.Git
+winget install -e --id Python.Python.3.11
+winget install -e --id PostgreSQL.PostgreSQL.16
+winget install -e --id CaddyServer.Caddy
+winget install -e --id NSSM.NSSM
+```
+
+If `winget` asks for agreement, accept it. If a package ID is not found, search it:
+
+```powershell
+winget search python
+winget search git
+winget search postgresql
+winget search caddy
+winget search nssm
+```
+
+Close and reopen PowerShell, then check:
+
+```powershell
+python --version
+git --version
+psql --version
+caddy version
+nssm version
+```
+
+If `psql` is not found, add PostgreSQL to PATH for the current terminal:
+
+```powershell
+$env:Path += ";C:\Program Files\PostgreSQL\16\bin"
+```
+
+To persist PostgreSQL PATH system-wide:
+
+```powershell
+[Environment]::SetEnvironmentVariable(
+  "Path",
+  [Environment]::GetEnvironmentVariable("Path", "Machine") + ";C:\Program Files\PostgreSQL\16\bin",
+  "Machine"
+)
+```
+
+NVIDIA driver is usually preinstalled on GPU VMs. Check first:
+
+```powershell
+nvidia-smi
+```
+
+If `nvidia-smi` is not found or fails, install the NVIDIA driver from the EzyCloudX control panel or the official NVIDIA driver page, reboot the VPS, then check again.
 
 Check GPU:
 
