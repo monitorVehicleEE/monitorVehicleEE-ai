@@ -136,10 +136,10 @@ class MainPipeline:
 
     def detect_plates_cached(self, frame_ref, frame):
         if frame_ref not in self.plate_detection_cache:
-            t0 = time.perf_counter()
+            # t0 = time.perf_counter()
             plates = self.detect_plates(frame)
-            plate_detect_time = time.perf_counter() - t0
-            print(f"[Plate Detect] {plate_detect_time*1000:.1f} ms")
+            # plate_detect_time = time.perf_counter() - t0
+            # print(f"[Plate Detect] {plate_detect_time*1000:.1f} ms")
             self.plate_detection_cache[frame_ref] = plates
         return self.plate_detection_cache[frame_ref]
 
@@ -475,6 +475,12 @@ class MainPipeline:
         boxBArea = (boxB[2] - boxB[0]) * (boxB[3] - boxB[1])
         iou = interArea / float(boxAArea + boxBArea - interArea)
         return iou
+    def is_auto_event_ready(self, mem):
+        return (
+            bool(mem.get("best_text"))
+            and int(mem.get("successful_reads") or 0) >= 1
+            and float(mem.get("avg_confidence") or 0.0) >= 0.7
+        )
 
     def process_frame_with_tracked_vehicles(self, frame):
             """
@@ -494,10 +500,10 @@ class MainPipeline:
                 self.cache_frame(self.frame_index, raw_frame)
 
             if run_vehicle_detection:
-                t0 = time.perf_counter()
+                # t0 = time.perf_counter()
                 detections = self.vehicle_detector.detect(raw_frame)
-                vehicle_detect_time = time.perf_counter() - t0
-                print(f"[Vehicle Detect] {vehicle_detect_time*1000:.1f} ms")
+                # vehicle_detect_time = time.perf_counter() - t0
+                # print(f"[Vehicle Detect] {vehicle_detect_time*1000:.1f} ms")
                 vehicles = self.vehicle_tracker.update(detections)
                 self.last_vehicles = vehicles
                 self.has_vehicle_detection = True
@@ -567,15 +573,17 @@ class MainPipeline:
             if self.frame_index % self.plate_step == 0:
                 plate_frame_checks = 0
                 for (track_id, vx1, vy1, vx2, vy2, vconf, vlabel) in vehicles:
-                    if plate_frame_checks >= self.max_plate_frame_checks_per_cycle:
-                        break
+                    # if plate_frame_checks >= self.max_plate_frame_checks_per_cycle:
+                    #     break
                     mem = self.tracking_manager.memory.get(track_id, {})
-                    if mem.get("best_text") and mem.get("best_count", 0) >= self.tracking_manager.min_votes:
+                    if self.is_auto_event_ready(mem):
                         continue
+                    # if mem.get("best_text") and mem.get("best_count", 0) >= self.tracking_manager.min_votes:
+                    #     continue
 
                     top_samples = self.tracking_manager.get_best_vehicle_samples(
                         track_id,
-                        top_k=3
+                        top_k=6
                     )
                     for sample in top_samples:
                         if plate_frame_checks >= self.max_plate_frame_checks_per_cycle:
@@ -613,10 +621,10 @@ class MainPipeline:
                         if frame_ref is not None:
                             plates = self.detect_plates_cached(frame_ref, scene_frame)
                         else:
-                            t0 = time.perf_counter()
+                            # t0 = time.perf_counter()
                             plates = self.detect_plates(scene_frame)
-                            plate_detect_time = time.perf_counter() - t0
-                            print(f"[Plate Detect] {plate_detect_time*1000:.1f} ms")
+                            # plate_detect_time = time.perf_counter() - t0
+                            # print(f"[Plate Detect] {plate_detect_time*1000:.1f} ms")
 
                         found_plate_for_sample = False
                         for plate in plates:
@@ -626,6 +634,11 @@ class MainPipeline:
                             cx = (px1 + px2) / 2.0
                             cy = (py1 + py2) / 2.0
                             if not (vx1s <= cx <= vx2s and vy1s <= cy <= vy2s):
+                                continue
+                            plate_area = max(1, (px2 - px1) * (py2 - py1))
+                            overlap_w = max(0, min(px2, vx2s) - max(px1, vx1s))
+                            overlap_h = max(0, min(py2, vy2s) - max(py1, vy1s))
+                            if (overlap_w * overlap_h) / plate_area < 0.8:
                                 continue
 
                             plate_img_for_char, plate_crop, sharpness, ok = \
@@ -659,35 +672,48 @@ class MainPipeline:
                         if not found_plate_for_sample and sample.get("plate_attempts", 0) >= self.max_plate_sample_retries:
                             sample["plate_checked"] = True
 
+                        break
+
             # 3. Chạy nhận diện ký tự (OCR) theo chu kỳ orc_step
             if self.frame_index % self.orc_step == 0:
                 for (track_id, vx1, vy1, vx2, vy2, vconf, vlabel) in vehicles:
-                    best_samples = self.tracking_manager.get_best_plate_samples(track_id, top_k=3)
+                    mem = self.tracking_manager.memory.get(track_id, {})
+                    if self.is_auto_event_ready(mem):
+                        continue
+
+                    best_samples = self.tracking_manager.get_best_plate_samples(track_id, top_k=5)
                     if not best_samples:
                         continue
                     for best_sample in best_samples:
-                        if best_sample.get("ocr_failed"):
+                        if best_sample.get("ocr_success"):
+                            continue
+                        if self.frame_index < best_sample.get("retry_after_ocr_frame", -1):
                             continue
 
                         bbox = best_sample["bbox"]
                         plate_img_for_char = best_sample.get("plate_img")
 
                         if plate_img_for_char is None:
-                            best_sample["ocr_failed"] = True
                             continue
                             
-                        t0 = time.perf_counter()
+                        # t0 = time.perf_counter()
 
                         chars = self.char_detector.detect(plate_img_for_char)
 
-                        ocr_time = time.perf_counter() - t0
+                        # ocr_time = time.perf_counter() - t0
 
-                        print(f"[OCR] {ocr_time*1000:.1f} ms")
+                        # print(f"[OCR] {ocr_time*1000:.1f} ms")
                         chars = self.filter_plate.char_sharpness(plate_img_for_char, chars)
                         chars_for_text = chars
 
                         if len(chars_for_text) < 4:
-                            best_sample["ocr_failed"] = True
+                            best_sample["ocr_attempts"] = (
+                                best_sample.get("ocr_attempts", 0) + 1
+                            )
+                            best_sample["retry_after_ocr_frame"] = (
+                                self.frame_index
+                                + self.orc_step * min(3, best_sample["ocr_attempts"])
+                            )
                             self.tracking_manager.update_unreadable_plate(
                                 track_id=track_id,
                                 frame_index=self.frame_index,
@@ -722,7 +748,13 @@ class MainPipeline:
                             track_id, {}
                         ).get("successful_reads", 0)
                         if after_successful_reads <= before_successful_reads:
-                            best_sample["ocr_failed"] = True
+                            best_sample["ocr_attempts"] = (
+                                best_sample.get("ocr_attempts", 0) + 1
+                            )
+                            best_sample["retry_after_ocr_frame"] = (
+                                self.frame_index
+                                + self.orc_step * min(3, best_sample["ocr_attempts"])
+                            )
                             continue
 
                         best_sample["ocr_success"] = True
@@ -775,7 +807,7 @@ class MainPipeline:
                         char_boxes=None # Có thể truyền list char nếu cần vẽ từng ký tự cụ thể
                     )
                     draw_time = time.perf_counter() - draw_start
-                    print(f"[DRAW] {draw_time*1000:.1f} ms")
+                    # print(f"[DRAW] {draw_time*1000:.1f} ms")
 
             # # 5. Dọn dẹp và kết xuất kết quả danh sách tracking
             for track_id in list(self.tracking_manager.memory.keys()):
@@ -830,5 +862,5 @@ class MainPipeline:
 
             fps = 1.0 / total_time if total_time > 0 else 0
 
-            print(f"[TOTAL] {total_time*1000:.1f} ms | FPS: {fps:.1f}")
+            # print(f"[TOTAL] {total_time*1000:.1f} ms | FPS: {fps:.1f}")
             return frame, results

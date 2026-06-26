@@ -145,7 +145,7 @@ def put_latest(queue: Queue, item) -> bool:
 
 
 def put_if_available(queue: Queue, item) -> bool:
-    # Put without blocking; return False when the queue is saturated.
+    # Put dữ liệu mà không cần chặn; return False when the queue is saturated.
     try:
         queue.put_nowait(item)
         return True

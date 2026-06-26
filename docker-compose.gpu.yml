@@ -1,0 +1,9 @@
+services:
+  ai-server:
+    environment:
+      DEVICE: "0"
+    gpus:
+      - driver: nvidia
+        count: all
+        capabilities:
+          - gpu

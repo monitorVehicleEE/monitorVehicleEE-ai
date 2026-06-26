@@ -1,0 +1,14 @@
+services:
+  be-server:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    image: monitor-vehicle-ee-be:latest
+    container_name: monitor-vehicle-ee-be
+    ports:
+      - "8000:8000"
+    environment:
+      APP_MODULE: "src.app.main:main"
+      PORT: "8000"
+      AI_PUBLIC_URL: "http://ai-server:8001"
+    restart: unless-stopped

@@ -31,7 +31,6 @@ class CharTask:
     frame_id: int
     source_frame_id: int
     track_id: int
-    # dÃ¹ng Ä‘á»ƒ chá»‘ng káº¿t quáº£ cÅ© tráº£ vá» muá»™n.
     track_started_at: int
     vehicle_bbox: Tuple[int, int, int, int]
     vehicle_label: str

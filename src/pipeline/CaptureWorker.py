@@ -48,7 +48,7 @@ class CaptureWorker(threading.Thread):
         
         # Biến tracking thời gian để quyết định khi nào giữ hoặc bỏ frame
         target_fps = 15.0
-        target_interval = 1.0 / target_fps
+        # target_interval = 1.0 / target_fps
         last_processed_time = 0.0 
 
         try:
@@ -56,8 +56,9 @@ class CaptureWorker(threading.Thread):
                 raise ValueError(f"Cannot open source for camera {self.camera_id}")
 
             source_fps = self.cap.get(cv2.CAP_PROP_FPS) or 0.0
+            target_interval = 1.0 / target_fps
             
-            # frame_interval này dùng để điều tốc (pace) khi đọc FILE tránh đọc quá nhanh
+            # frame_interval này dùng để điều tốc khi đọc FILE tránh đọc quá nhanh
             frame_interval = (
                 1.0 / source_fps
                 if self.pace_file and self._is_file_source() and source_fps > 0
@@ -80,7 +81,11 @@ class CaptureWorker(threading.Thread):
                             continue
                         continue
                     break
-
+                # if frame_id == 0:
+                #     print("[CAPTURE BEFORE]", frame.shape)
+                # frame = self.resize_frame(frame, 640)
+                # if frame_id == 0:
+                #     print("[CAPTURE AFTER]", frame.shape)
                 # LỌC KHUNG HÌNH THEO TARGET FPS 
                 current_time = time.time()
                 # Nếu khoảng cách từ frame đã xử lý trước đó chưa đủ thời gian của target_fps, BỎ QUA frame này
@@ -140,3 +145,20 @@ class CaptureWorker(threading.Thread):
             self.local_stop_event.is_set()
             or self.state.stop_event.is_set()
         ) 
+    
+    @staticmethod
+    def resize_frame(frame, max_side=640):
+        h, w = frame.shape[:2]
+
+        longest = max(h, w)
+
+        if longest <= max_side:
+            return frame
+
+        scale = max_side / longest
+
+        return cv2.resize(
+            frame,
+            (int(w * scale), int(h * scale)),
+            interpolation=cv2.INTER_AREA,
+        )

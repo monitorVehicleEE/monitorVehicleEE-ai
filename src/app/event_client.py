@@ -2,10 +2,12 @@ import json
 import os
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
-
+from src.config.settings import (
+    ACTIVE_EVENT_PLATE_CONFIDENCE
+)
 
 AUTO_APPROVE_PLATE_CONFIDENCE = float(
-    os.getenv("AUTO_APPROVE_PLATE_CONFIDENCE", "0.75")
+    os.getenv("AUTO_APPROVE_PLATE_CONFIDENCE", ACTIVE_EVENT_PLATE_CONFIDENCE)
 )
 
 

@@ -4,7 +4,6 @@ import cv2
 
 
 class RenderWorker(threading.Thread):
-    """Optional preview worker. Production callers should use result callbacks."""
 
     def __init__(self, state, refresh_interval=0.02, max_window_size=(1280, 720)):
         super().__init__(name="preview-render", daemon=True)

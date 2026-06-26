@@ -63,10 +63,7 @@ detector_char = PlateChar(OCR_MODEL_PATH, device=DEVICE)
 server_event = ServerEvent(camera_api_url=CAMERA_API_URL)
 
 
-class FastStreamBroadcaster:
-    """
-    Callback chuẩn từ run_video.py giúp hứng trọn vẹn frame và kết quả từ RenderWorker
-    """
+class Stream:
     def __init__(self, queue_size=120):
         self.queue = queue.Queue(maxsize=queue_size)
         self.is_stopped = False
@@ -201,7 +198,7 @@ def get_stream_fps(source):
     return min(source_fps, STREAM_DEFAULT_FPS_CAP)
 
 
-def generate_frames_from_broadcaster(cam_id, broadcaster: FastStreamBroadcaster, width=STREAM_WIDTH):
+def generate_frames_from_broadcaster(cam_id, broadcaster: Stream, width=STREAM_WIDTH):
     width_key = int(width or STREAM_WIDTH)
     while True:
         # Nếu broadcaster báo dừng, kết thúc generator ngay lập tức
@@ -295,7 +292,7 @@ def start_stream(
     source_fps = get_source_fps(video_source)
     stream_fps = get_stream_fps(video_source)
 
-    broadcaster = FastStreamBroadcaster()
+    broadcaster = Stream()
 
     manager = PipelineManager(
         vehicle_model=detector_vehicle,
@@ -333,7 +330,6 @@ def start_stream(
             "stream_stats": {"frames_served": 0, "cache_hits": 0, "cache_misses": 0}
         }
 
-    print(f"[INFO] Started isolated offline-speed pipeline for camera: {cam_id}")
     return {
         "status": "started",
         "cam_id": cam_id,

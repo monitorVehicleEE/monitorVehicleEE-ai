@@ -5,6 +5,7 @@ import numpy as np
 import time
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
+from threading import Lock
 from src.config.settings import (
     ACTIVE_EVENT_NO_PLATE_MIN_FRAMES,
     ACTIVE_EVENT_PLATE_CONFIDENCE,
@@ -87,8 +88,11 @@ class CameraRunner:
         self.on_finish = None
         self.sent_event_track_ids = set()
         self.queued_event_track_ids = set()
-        self.event_executor = ThreadPoolExecutor(max_workers=1)
+        self.event_executor = ThreadPoolExecutor(
+            max_workers=int(os.getenv("EVENT_POST_WORKERS", "4"))
+        )
         self.event_futures = []
+        self.event_lock = Lock()
         self.event_post_queue_limit = int(
             os.getenv("EVENT_POST_QUEUE_LIMIT", str(EVENT_POST_QUEUE_LIMIT))
         )
@@ -134,16 +138,21 @@ class CameraRunner:
 
         return max(0, int(last_seen_frame) - int(first_seen_frame) + 1)
 
+    @staticmethod
+    def has_vehicle_image(result):
+        vehicle_img = result.get("best_vehicle_img")
+        return vehicle_img is not None and vehicle_img.size > 0
+
     def should_send_result(self, result):
         track_id = result.get("track_id")
-        if (
-            track_id in self.sent_event_track_ids
-            or track_id in self.queued_event_track_ids
-        ):
-            return False
+        with self.event_lock:
+            if (
+                track_id in self.sent_event_track_ids
+                or track_id in self.queued_event_track_ids
+            ):
+                return False
 
-        best_vehicle_img = result.get("best_vehicle_img")
-        if best_vehicle_img is None or best_vehicle_img.size <= 0:
+        if not self.has_vehicle_image(result):
             return False
 
         plate_text = result.get("plate_text")
@@ -152,7 +161,7 @@ class CameraRunner:
 
         has_good_plate = (
             bool(plate_text)
-            and successful_reads >= 2
+            and successful_reads >= 1
             and plate_confidence >= self.good_plate_confidence
         )
         if has_good_plate:
@@ -250,7 +259,8 @@ class CameraRunner:
 
             response = post_vehicle_event(self.camera_api_url, payload)
             if response is not None:
-                self.sent_event_track_ids.add(track_id)
+                with self.event_lock:
+                    self.sent_event_track_ids.add(track_id)
                 # print(
                 #     "[BE EVENT SENT]",
                 #     f"camera={self.cam_id}",
@@ -272,30 +282,41 @@ class CameraRunner:
                 exc,
             )
         finally:
-            self.queued_event_track_ids.discard(track_id)
+            with self.event_lock:
+                self.queued_event_track_ids.discard(track_id)
 
     def queue_result_to_server(self, result):
-        self.event_futures = [
-            future for future in self.event_futures
-            if not future.done()
-        ]
-
-        if len(self.event_futures) >= self.event_post_queue_limit:
-            print(
-                "[BE EVENT SKIPPED]",
-                f"camera={self.cam_id}",
-                f"track={result.get('track_id')}",
-                "reason=post_queue_full",
-            )
-            return
-
         track_id = result.get("track_id")
-        self.queued_event_track_ids.add(track_id)
+
+        with self.event_lock:
+            self.event_futures = [
+                future for future in self.event_futures
+                if not future.done()
+            ]
+
+            if len(self.event_futures) >= self.event_post_queue_limit:
+                print(
+                    "[BE EVENT SKIPPED]",
+                    f"camera={self.cam_id}",
+                    f"track={track_id}",
+                    "reason=post_queue_full",
+                )
+                return
+
+            self.queued_event_track_ids.add(track_id)
+
+        safe_result = dict(result)
+        if result.get("best_vehicle_img") is not None:
+            safe_result["best_vehicle_img"] = result["best_vehicle_img"].copy()
+        if result.get("best_plate_img") is not None:
+            safe_result["best_plate_img"] = result["best_plate_img"].copy()
+
         future = self.event_executor.submit(
             self.send_result_to_server,
-            result
+            safe_result
         )
-        self.event_futures.append(future)
+        with self.event_lock:
+            self.event_futures.append(future)
 
     def send_results_to_server(self, results, eligible_only=True):
         if (
@@ -308,6 +329,8 @@ class CameraRunner:
         for result in results:
             track_id = result.get("track_id")
             if track_id is None:
+                continue
+            if not self.has_vehicle_image(result):
                 continue
 
             if eligible_only and not self.should_send_result(result):
@@ -504,7 +527,7 @@ class CameraRunner:
         self.pipeline.tracking_manager.finalize_all_active_tracks()
 
         results = self.pipeline.tracking_manager.export_all_results()
-        self.send_results_to_server(results, eligible_only=False)
+        self.send_results_to_server(results, eligible_only=True)
         self.close_event_executor()
 
         json_path = self.make_unique_path(

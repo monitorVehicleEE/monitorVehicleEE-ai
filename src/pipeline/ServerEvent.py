@@ -126,6 +126,11 @@ class ServerEvent:
             last_seen = first_seen
         return max(0, int(last_seen) - int(first_seen) + 1)
 
+    @staticmethod
+    def _has_vehicle_image(result):
+        vehicle_img = result.get("best_vehicle_img")
+        return vehicle_img is not None and vehicle_img.size > 0
+
     def _should_send(self, camera_id, result):
         track_id = result.get("track_id")
         if track_id is None:
@@ -139,8 +144,7 @@ class ServerEvent:
             ):
                 return False
 
-        vehicle_img = result.get("best_vehicle_img")
-        if vehicle_img is None or vehicle_img.size <= 0:
+        if not self._has_vehicle_image(result):
             return False
 
         plate_text = result.get("plate_text")
@@ -306,6 +310,8 @@ class ServerEvent:
             track_id = result.get("track_id")
             if track_id is None:
                 continue
+            if not self._has_vehicle_image(result):
+                continue
             if eligible_only:
                 if not self._should_send(camera_id, result):
                     continue
@@ -338,7 +344,7 @@ class ServerEvent:
                 return
 
         for camera_id, results in (final_results or {}).items():
-            self.send_results(camera_id, results, eligible_only=False)
+            self.send_results(camera_id, results, eligible_only=True)
 
         with self.lock:
             futures = list(self.futures)

@@ -1,0 +1,66 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: monitor-vehicle-ee-db
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-movee}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-123}
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ../monitorVehicleEE-be-fta/docs/db/create/query.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-movee}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  be:
+    build:
+      context: ../monitorVehicleEE-be-fta
+      dockerfile: Dockerfile
+    image: monitor-vehicle-ee-be:latest
+    container_name: monitor-vehicle-ee-be
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    environment:
+      PORT: "8000"
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-123}@db:5432/${POSTGRES_DB:-movee}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173,http://localhost,https://www.nqmovee.site,https://nqmovee.site}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change-this-in-production}
+    restart: unless-stopped
+
+  ai-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: monitor-vehicle-ee-ai:latest
+    container_name: monitor-vehicle-ee-ai
+    depends_on:
+      - be
+    ports:
+      - "8001:8001"
+    environment:
+      DEVICE: ${DEVICE:-cpu}
+      CAMERA_API_URL: http://be:8000
+      AI_PUBLIC_URL: ${AI_PUBLIC_URL:-http://localhost:8001}
+      VIDEO_BASE_DIR: /app/dataset/vehicle/videos
+      OUTPUT_DIR: /app/dataset/output_test
+      EVENT_IMAGES_DIR: /app/dataset/output_test/events
+      STREAM_WIDTH: ${STREAM_WIDTH:-640}
+      JPEG_QUALITY: ${JPEG_QUALITY:-75}
+      SHOW_WINDOW: "false"
+    volumes:
+      - ./model:/app/model:ro
+      - ./dataset/vehicle/videos:/app/dataset/vehicle/videos:ro
+      - ./dataset/output_test:/app/dataset/output_test
+    restart: unless-stopped
+
+volumes:
+  postgres_data:

@@ -21,6 +21,8 @@
 # càu tensortRT: pip install tensorrt || pip install tensorrt==10.11.0.33
 # trtexec --onnx=model/pytorch/vehicle/best.onnx --saveEngine=best.engine --fp16
 
+.\.venv\Scripts\python.exe -m :pws
+.venv\Scripts\activate.bat: cmd
 # run sequential server
 uvicorn src.app.app:app --reload --host 0.0.0.0 --port 8001
 
